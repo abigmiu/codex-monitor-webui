@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Event, EventCallback, UnlistenFn } from "@tauri-apps/api/event";
-import { listen } from "@tauri-apps/api/event";
 import type { AppServerEvent } from "../types";
+import { subscribeRpcNotification } from "../platform/rpcClient";
 import {
   subscribeAppServerEvents,
   subscribeMenuCycleCollaborationMode,
@@ -10,8 +9,8 @@ import {
   subscribeTerminalOutput,
 } from "./events";
 
-vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(),
+vi.mock("../platform/rpcClient", () => ({
+  subscribeRpcNotification: vi.fn(),
 }));
 
 describe("events subscriptions", () => {
@@ -20,12 +19,12 @@ describe("events subscriptions", () => {
   });
 
   it("delivers payloads and unsubscribes on cleanup", async () => {
-    let listener: EventCallback<AppServerEvent> = () => {};
+    let handler: (payload: unknown) => void = () => {};
     const unlisten = vi.fn();
 
-    vi.mocked(listen).mockImplementation((_event, handler) => {
-      listener = handler as EventCallback<AppServerEvent>;
-      return Promise.resolve(unlisten);
+    vi.mocked(subscribeRpcNotification).mockImplementation((_event, callback) => {
+      handler = callback;
+      return unlisten;
     });
 
     const onEvent = vi.fn();
@@ -35,12 +34,7 @@ describe("events subscriptions", () => {
       message: { method: "ping" },
     };
 
-    const event: Event<AppServerEvent> = {
-      event: "app-server-event",
-      id: 1,
-      payload,
-    };
-    listener(event);
+    handler(payload);
     expect(onEvent).toHaveBeenCalledWith(payload);
 
     cleanup();
@@ -48,82 +42,63 @@ describe("events subscriptions", () => {
     expect(unlisten).toHaveBeenCalledTimes(1);
   });
 
-  it("cleans up listeners that resolve after unsubscribe", async () => {
-    let resolveListener: (handler: UnlistenFn) => void = () => {};
-    const unlisten = vi.fn();
-
-    vi.mocked(listen).mockImplementation(
-      () =>
-        new Promise<UnlistenFn>((resolve) => {
-          resolveListener = resolve;
-        }),
-    );
-
-    const cleanup = subscribeMenuNewAgent(() => {});
-    cleanup();
-
-    resolveListener(unlisten);
-    await Promise.resolve();
-    expect(unlisten).toHaveBeenCalledTimes(1);
-  });
-
   it("delivers menu events to subscribers", async () => {
-    let listener: EventCallback<void> = () => {};
+    let handler: (payload: unknown) => void = () => {};
     const unlisten = vi.fn();
 
-    vi.mocked(listen).mockImplementation((_event, handler) => {
-      listener = handler as EventCallback<void>;
-      return Promise.resolve(unlisten);
+    vi.mocked(subscribeRpcNotification).mockImplementation((_event, callback) => {
+      handler = callback;
+      return unlisten;
     });
 
     const onEvent = vi.fn();
     const cleanup = subscribeMenuCycleModel(onEvent);
 
-    const event: Event<void> = {
-      event: "menu-composer-cycle-model",
-      id: 1,
-      payload: undefined,
-    };
-    listener(event);
+    handler(undefined);
     expect(onEvent).toHaveBeenCalledTimes(1);
 
     cleanup();
   });
 
   it("delivers collaboration cycle menu events to subscribers", async () => {
-    let listener: EventCallback<void> = () => {};
+    let handler: (payload: unknown) => void = () => {};
     const unlisten = vi.fn();
 
-    vi.mocked(listen).mockImplementation((_event, handler) => {
-      listener = handler as EventCallback<void>;
-      return Promise.resolve(unlisten);
+    vi.mocked(subscribeRpcNotification).mockImplementation((_event, callback) => {
+      handler = callback;
+      return unlisten;
     });
 
     const onEvent = vi.fn();
     const cleanup = subscribeMenuCycleCollaborationMode(onEvent);
 
-    const event: Event<void> = {
-      event: "menu-composer-cycle-collaboration",
-      id: 1,
-      payload: undefined,
-    };
-    listener(event);
+    handler(undefined);
     expect(onEvent).toHaveBeenCalledTimes(1);
 
     cleanup();
   });
 
-  it("reports listen errors through options", async () => {
+  it("reports subscribe errors through options", async () => {
     const error = new Error("nope");
-    vi.mocked(listen).mockRejectedValueOnce(error);
+    vi.mocked(subscribeRpcNotification).mockImplementationOnce(() => {
+      throw error;
+    });
 
     const onError = vi.fn();
     const cleanup = subscribeTerminalOutput(() => {}, { onError });
 
     await Promise.resolve();
-    await Promise.resolve();
     expect(onError).toHaveBeenCalledWith(error);
 
     cleanup();
+  });
+
+  it("cleans up listeners", async () => {
+    const unlisten = vi.fn();
+    vi.mocked(subscribeRpcNotification).mockImplementation(() => unlisten);
+
+    const cleanup = subscribeMenuNewAgent(() => {});
+    cleanup();
+    expect(unlisten).toHaveBeenCalledTimes(1);
   });
 });

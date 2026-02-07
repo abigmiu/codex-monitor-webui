@@ -8,9 +8,7 @@ import {
 import type { CustomPromptOption } from "../../../types";
 import { expandCustomPromptText, getPromptArgumentHint } from "../../../utils/customPrompts";
 import { PanelTabs, type PanelTabId } from "../../layout/components/PanelTabs";
-import { Menu, MenuItem } from "@tauri-apps/api/menu";
-import { LogicalPosition } from "@tauri-apps/api/dpi";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { showContextMenuFromEvent } from "../../../platform/contextMenu";
 import MoreHorizontal from "lucide-react/dist/esm/icons/more-horizontal";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import ScrollText from "lucide-react/dist/esm/icons/scroll-text";
@@ -286,29 +284,22 @@ export function PromptPanel({
     event: ReactMouseEvent<HTMLButtonElement>,
     prompt: CustomPromptOption,
   ) => {
-    event.preventDefault();
-    event.stopPropagation();
     const scope = isWorkspacePrompt(prompt) ? "workspace" : "global";
     const nextScope = scope === "workspace" ? "global" : "workspace";
-    const menu = await Menu.new({
-      items: [
-        await MenuItem.new({
-          text: "Edit",
-          action: () => startEdit(prompt),
-        }),
-        await MenuItem.new({
-          text: `Move to ${nextScope === "workspace" ? "workspace" : "general"}`,
-          action: () => void handleMove(prompt, nextScope),
-        }),
-        await MenuItem.new({
-          text: "Delete",
-          action: () => handleDeleteRequest(prompt),
-        }),
-      ],
-    });
-    const position = new LogicalPosition(event.clientX, event.clientY);
-    const window = getCurrentWindow();
-    await menu.popup(position, window);
+    await showContextMenuFromEvent(event, [
+      {
+        label: "Edit",
+        onSelect: () => startEdit(prompt),
+      },
+      {
+        label: `Move to ${nextScope === "workspace" ? "workspace" : "general"}`,
+        onSelect: () => void handleMove(prompt, nextScope),
+      },
+      {
+        label: "Delete",
+        onSelect: () => handleDeleteRequest(prompt),
+      },
+    ]);
   };
 
   const renderPromptRow = (prompt: CustomPromptOption) => {

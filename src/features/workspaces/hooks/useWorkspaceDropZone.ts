@@ -37,6 +37,35 @@ function normalizeDragPosition(
   return scaledDistance < logicalDistance ? scaled : position;
 }
 
+function decodeFileUri(uri: string) {
+  const trimmed = uri.trim();
+  if (!trimmed.startsWith("file://")) {
+    return null;
+  }
+  try {
+    const url = new URL(trimmed);
+    const pathname = decodeURIComponent(url.pathname);
+    if (!pathname) {
+      return null;
+    }
+    return pathname;
+  } catch {
+    return null;
+  }
+}
+
+function extractDropPaths(event: DragEvent<HTMLElement>) {
+  const uriList = event.dataTransfer.getData("text/uri-list");
+  const plainText = event.dataTransfer.getData("text/plain");
+  const candidates = [uriList, plainText]
+    .flatMap((value) => value.split(/\r?\n/))
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map(decodeFileUri)
+    .filter((value): value is string => Boolean(value));
+  return Array.from(new Set(candidates));
+}
+
 type DropPathsHandler = (paths: string[]) => void | Promise<void>;
 
 type UseWorkspaceDropZoneArgs = {
@@ -111,27 +140,9 @@ export function useWorkspaceDropZone({
           position.y >= rect.top &&
           position.y <= rect.bottom;
         setIsDragOver(isInside);
-        return;
       }
       if (payload.type === "drop") {
         setIsDragOver(false);
-        const position = normalizeDragPosition(
-          payload.position,
-          lastClientPositionRef.current,
-        );
-        const rect = dropTargetRef.current.getBoundingClientRect();
-        const isInside =
-          position.x >= rect.left &&
-          position.x <= rect.right &&
-          position.y >= rect.top &&
-          position.y <= rect.bottom;
-        if (!isInside) {
-          return;
-        }
-        const paths = (payload.paths ?? [])
-          .map((path) => path.trim())
-          .filter(Boolean);
-        emitPaths(paths);
       }
     });
     return () => {
@@ -139,7 +150,7 @@ export function useWorkspaceDropZone({
         unlisten();
       }
     };
-  }, [disabled, emitPaths]);
+  }, [disabled]);
 
   const handleDragOver = (event: DragEvent<HTMLElement>) => {
     if (disabled) {
@@ -185,16 +196,7 @@ export function useWorkspaceDropZone({
     }
     setIsDragOver(false);
     lastClientPositionRef.current = null;
-    const files = Array.from(event.dataTransfer?.files ?? []);
-    const items = Array.from(event.dataTransfer?.items ?? []);
-    const itemFiles = items
-      .filter((item) => item.kind === "file")
-      .map((item) => item.getAsFile())
-      .filter((file): file is File => Boolean(file));
-    const paths = [...files, ...itemFiles]
-      .map((file) => (file as File & { path?: string }).path ?? "")
-      .filter(Boolean);
-    emitPaths(paths);
+    emitPaths(extractDropPaths(event));
   };
 
   return {

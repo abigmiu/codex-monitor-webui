@@ -2,7 +2,7 @@
 
 ![CodexMonitor](screenshot.png)
 
-CodexMonitor is a Tauri app for orchestrating multiple Codex agents across local workspaces. It provides a sidebar to manage projects, a home screen for quick actions, and a conversation view backed by the Codex app-server protocol.
+CodexMonitor is a Web app for orchestrating multiple Codex agents across local workspaces, backed by a local Rust service. It provides a sidebar to manage projects, a home screen for quick actions, and a conversation view backed by the Codex app-server protocol.
 
 ## Features
 
@@ -19,7 +19,7 @@ CodexMonitor is a Tauri app for orchestrating multiple Codex agents across local
 - Compose with queueing plus image attachments (picker, drag/drop, paste).
 - Autocomplete for skills (`$`), prompts (`/prompts:`), reviews (`/review`), and file paths (`@`).
 - Model picker, collaboration modes (when enabled), reasoning effort, access mode, and context usage ring.
-- Dictation with hold-to-talk shortcuts and live waveform (Whisper).
+- Dictation with hold-to-talk shortcuts powered by the browser Web Speech API (with graceful fallback when unsupported).
 - Render reasoning/tool/diff items and handle approval prompts.
 
 ### Git & GitHub
@@ -40,7 +40,7 @@ CodexMonitor is a Tauri app for orchestrating multiple Codex agents across local
 - Responsive layouts (desktop/tablet/phone) with tabbed navigation.
 - Sidebar usage and credits meter for account rate limits plus a home usage snapshot.
 - Terminal dock with multiple tabs for background commands (experimental).
-- In-app updates with toast-driven download/install, debug panel copy/clear, sound notifications, plus platform-specific window effects (macOS overlay title bar + vibrancy) and a reduced transparency toggle.
+- Web update checks that guide users to GitHub Releases downloads, debug panel copy/clear, sound notifications, and a reduced transparency toggle.
 
 ## Requirements
 
@@ -67,36 +67,58 @@ Install dependencies:
 npm install
 ```
 
-Run in dev mode:
+### Optional: install global command
+
+From this repository root:
 
 ```bash
-npm run tauri dev
+npm install -g .
+# or: npm link
 ```
 
-## Release Build
-
-Build the production Tauri bundle:
+Then run:
 
 ```bash
-npm run tauri build
+codex-monitor
 ```
 
-Artifacts will be in `src-tauri/target/release/bundle/` (platform-specific subfolders).
+Useful flags:
+- `--backend-only` / `--frontend-only`
+- `--listen 127.0.0.1:4732`
+- `--data-dir ~/.codexmonitor-web`
+- `--token dev-token` (or `--no-token`)
+- `--frontend-port 5173`
 
-### Windows (opt-in)
-
-Windows builds are opt-in and use a separate Tauri config file to avoid macOS-only window effects.
+### 1) Start the Rust web backend
 
 ```bash
-npm run tauri:build:win
+cd src-tauri
+TMPDIR=../.tmp cargo run --bin codex_monitor_web -- \
+  --listen 127.0.0.1:4732 \
+  --data-dir ~/.codexmonitor-web \
+  --token dev-token
 ```
 
-Artifacts will be in:
+- `--token` is optional. If you omit it, clients can connect without authentication.
+- `--data-dir` stores `workspaces.json` and `settings.json`.
 
-- `src-tauri/target/release/bundle/nsis/` (installer exe)
-- `src-tauri/target/release/bundle/msi/` (msi)
- 
-Note: building from source on Windows requires LLVM/Clang (for `bindgen` / `libclang`) in addition to CMake.
+### 2) Start the frontend
+
+```bash
+VITE_CODEX_MONITOR_API_BASE=http://127.0.0.1:4732 \
+VITE_CODEX_MONITOR_TOKEN=dev-token \
+npm run dev
+```
+
+Optional env vars:
+- `VITE_CODEX_MONITOR_RPC_URL` (defaults to `<api-base>/rpc`)
+- `VITE_CODEX_MONITOR_TOKEN` (can also be provided via `localStorage["codex_monitor_token"]`)
+
+### 3) Build production frontend assets
+
+```bash
+npm run build
+```
 
 ## Type Checking
 
@@ -113,12 +135,13 @@ Note: `npm run build` also runs `tsc` before bundling the frontend.
 ```
 src/
   features/         feature-sliced UI + hooks
-  services/         Tauri IPC wrapper
+  platform/         web platform adapters (rpc/dialog/opener/file src/etc.)
+  services/         RPC wrapper used by features
   styles/           split CSS by area
   types.ts          shared types
 src-tauri/
-  src/lib.rs        Tauri backend + codex app-server client
-  tauri.conf.json   window configuration
+  src/bin/codex_monitor_web.rs   web backend (WS JSON-RPC + HTTP file endpoint)
+  src/shared/                     shared backend logic reused from daemon
 ```
 
 ## Notes
@@ -130,15 +153,15 @@ src-tauri/
 - Threads are restored by filtering `thread/list` results using the workspace `cwd`.
 - Selecting a thread always calls `thread/resume` to refresh messages from disk.
 - CLI sessions appear if their `cwd` matches the workspace path; they are not live-streamed unless resumed.
-- The app uses `codex app-server` over stdio; see `src-tauri/src/lib.rs`.
+- The web backend uses `codex app-server` over stdio; see `src-tauri/src/bin/codex_monitor_web.rs`.
 - Codex sessions use the default Codex home (usually `~/.codex`); if a legacy `.codexmonitor/` exists in a workspace, it is used for that workspace.
 - Worktree agents live under the app data directory (`worktrees/<workspace-id>`); legacy `.codex-worktrees/` paths remain supported, and the app no longer edits repo `.gitignore` files.
 - UI state (panel sizes, reduced transparency toggle, recent thread activity) is stored in `localStorage`.
 - Custom prompts load from `$CODEX_HOME/prompts` (or `~/.codex/prompts`) with optional frontmatter description/argument hints.
 
-## Tauri IPC Surface
+## Web RPC Surface
 
-Frontend calls live in `src/services/tauri.ts` and map to commands in `src-tauri/src/lib.rs`. Core commands include:
+Frontend calls live in `src/services/tauri.ts` and map to RPC methods handled by `src-tauri/src/bin/codex_monitor_web.rs`. Core commands include:
 
 - Workspace lifecycle: `list_workspaces`, `add_workspace`, `add_worktree`, `remove_workspace`, `remove_worktree`, `connect_workspace`, `update_workspace_settings`.
 - Threads: `start_thread`, `list_threads`, `resume_thread`, `archive_thread`, `send_user_message`, `turn_interrupt`, `respond_to_server_request`.

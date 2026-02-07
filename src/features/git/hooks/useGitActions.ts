@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { confirmDialog } from "../../../platform/dialog";
 import {
   applyWorktreeChanges as applyWorktreeChangesService,
   revertGitAll,
@@ -127,7 +127,7 @@ export function useGitActions({
     if (!workspaceId) {
       return;
     }
-    const confirmed = await ask(
+    const confirmed = await confirmDialog(
       "Revert all changes in this repo?\n\nThis will discard all staged and unstaged changes, including untracked files.",
       { title: "Revert all changes", kind: "warning" },
     );

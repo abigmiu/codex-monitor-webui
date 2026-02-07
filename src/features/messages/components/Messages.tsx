@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { workspaceFileSrc } from "../../../platform/fileSrc";
 import Brain from "lucide-react/dist/esm/icons/brain";
 import Check from "lucide-react/dist/esm/icons/check";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
@@ -69,6 +69,7 @@ type MessageRowProps = {
   isCopied: boolean;
   onCopy: (item: Extract<ConversationItem, { kind: "message" }>) => void;
   codeBlockCopyUseModifier?: boolean;
+  workspaceId?: string | null;
   workspacePath?: string | null;
   onOpenFileLink?: (path: string) => void;
   onOpenFileLinkMenu?: (event: React.MouseEvent, path: string) => void;
@@ -239,7 +240,7 @@ function parseReasoning(item: Extract<ConversationItem, { kind: "reasoning" }>) 
   };
 }
 
-function normalizeMessageImageSrc(path: string) {
+function normalizeMessageImageSrc(path: string, workspaceId: string | null | undefined) {
   if (!path) {
     return "";
   }
@@ -250,7 +251,7 @@ function normalizeMessageImageSrc(path: string) {
     return path;
   }
   try {
-    return convertFileSrc(path);
+    return workspaceFileSrc(workspaceId ?? null, path);
   } catch {
     return "";
   }
@@ -674,6 +675,7 @@ const MessageRow = memo(function MessageRow({
   isCopied,
   onCopy,
   codeBlockCopyUseModifier,
+  workspaceId,
   workspacePath,
   onOpenFileLink,
   onOpenFileLinkMenu,
@@ -687,14 +689,14 @@ const MessageRow = memo(function MessageRow({
     }
     return item.images
       .map((image, index) => {
-        const src = normalizeMessageImageSrc(image);
+        const src = normalizeMessageImageSrc(image, workspaceId);
         if (!src) {
           return null;
         }
         return { src, label: `Image ${index + 1}` };
       })
       .filter(Boolean) as MessageImage[];
-  }, [item.images]);
+  }, [item.images, workspaceId]);
 
   return (
     <div className={`message ${item.role}`}>
@@ -1341,6 +1343,7 @@ export const Messages = memo(function Messages({
           isCopied={isCopied}
           onCopy={handleCopyMessage}
           codeBlockCopyUseModifier={codeBlockCopyUseModifier}
+          workspaceId={workspaceId}
           workspacePath={workspacePath}
           onOpenFileLink={openFileLink}
           onOpenFileLinkMenu={showFileLinkMenu}

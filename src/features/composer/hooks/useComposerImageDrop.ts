@@ -1,22 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { subscribeWindowDragDrop } from "../../../services/dragDrop";
 
-const imageExtensions = [
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".gif",
-  ".webp",
-  ".bmp",
-  ".tiff",
-  ".tif",
-];
-
-function isImagePath(path: string) {
-  const lower = path.toLowerCase();
-  return imageExtensions.some((ext) => lower.endsWith(ext));
-}
-
 function isDragFileTransfer(types: readonly string[] | undefined) {
   if (!types || types.length === 0) {
     return false;
@@ -26,6 +10,13 @@ function isDragFileTransfer(types: readonly string[] | undefined) {
     types.includes("public.file-url") ||
     types.includes("application/x-moz-file")
   );
+}
+
+function isImageFile(file: File) {
+  if (file.type.startsWith("image/")) {
+    return true;
+  }
+  return /\.(png|jpe?g|gif|webp|bmp|tiff?)$/i.test(file.name);
 }
 
 function readFilesAsDataUrls(files: File[]) {
@@ -112,13 +103,15 @@ export function useComposerImageDrop({
         if (!isInside) {
           return;
         }
-        const imagePaths = (event.payload.paths ?? [])
-          .map((path) => path.trim())
-          .filter(Boolean)
-          .filter(isImagePath);
-        if (imagePaths.length > 0) {
-          onAttachImages?.(imagePaths);
+        const imageFiles = (event.payload.files ?? []).filter(isImageFile);
+        if (imageFiles.length === 0) {
+          return;
         }
+        void readFilesAsDataUrls(imageFiles).then((images) => {
+          if (images.length > 0) {
+            onAttachImages?.(images);
+          }
+        });
       }
     });
     return () => {
@@ -157,27 +150,19 @@ export function useComposerImageDrop({
     event.preventDefault();
     setIsDragOver(false);
     lastClientPositionRef.current = null;
+
     const files = Array.from(event.dataTransfer?.files ?? []);
     const items = Array.from(event.dataTransfer?.items ?? []);
     const itemFiles = items
       .filter((item) => item.kind === "file")
       .map((item) => item.getAsFile())
       .filter((file): file is File => Boolean(file));
-    const filePaths = [...files, ...itemFiles]
-      .map((file) => (file as File & { path?: string }).path ?? "")
-      .filter(Boolean);
-    const imagePaths = filePaths.filter(isImagePath);
-    if (imagePaths.length > 0) {
-      onAttachImages?.(imagePaths);
+
+    const imageFiles = [...files, ...itemFiles].filter(isImageFile);
+    if (imageFiles.length === 0) {
       return;
     }
-    const fileImages = [...files, ...itemFiles].filter((file) =>
-      file.type.startsWith("image/"),
-    );
-    if (fileImages.length === 0) {
-      return;
-    }
-    const dataUrls = await readFilesAsDataUrls(fileImages);
+    const dataUrls = await readFilesAsDataUrls(imageFiles);
     if (dataUrls.length > 0) {
       onAttachImages?.(dataUrls);
     }
@@ -199,21 +184,9 @@ export function useComposerImageDrop({
     if (!files.length) {
       return;
     }
-    const dataUrls = await Promise.all(
-      files.map(
-        (file) =>
-          new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () =>
-              resolve(typeof reader.result === "string" ? reader.result : "");
-            reader.onerror = () => resolve("");
-            reader.readAsDataURL(file);
-          }),
-      ),
-    );
-    const valid = dataUrls.filter(Boolean);
-    if (valid.length > 0) {
-      onAttachImages?.(valid);
+    const dataUrls = await readFilesAsDataUrls(files);
+    if (dataUrls.length > 0) {
+      onAttachImages?.(dataUrls);
     }
   };
 

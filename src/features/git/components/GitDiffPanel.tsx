@@ -1,10 +1,11 @@
 import type { GitHubIssue, GitHubPullRequest, GitLogEntry } from "../../../types";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { Menu, MenuItem } from "@tauri-apps/api/menu";
-import { LogicalPosition } from "@tauri-apps/api/dpi";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ask } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { confirmDialog } from "../../../platform/dialog";
+import { openExternalUrl } from "../../../platform/opener";
+import {
+  showContextMenuFromEvent,
+  type ContextMenuItem,
+} from "../../../platform/contextMenu";
 import ArrowLeftRight from "lucide-react/dist/esm/icons/arrow-left-right";
 import Check from "lucide-react/dist/esm/icons/check";
 import Download from "lucide-react/dist/esm/icons/download";
@@ -22,6 +23,7 @@ import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { formatRelativeTime } from "../../../utils/time";
 import { PanelTabs, type PanelTabId } from "../../layout/components/PanelTabs";
 import { pushErrorToast } from "../../../services/toasts";
+import { revealItemInDir } from "../../../services/tauri";
 import {
   fileManagerName,
   isAbsolutePath as isAbsolutePathForPlatform,
@@ -916,28 +918,23 @@ export function GitDiffPanel({
 
   const showLogMenu = useCallback(
     async (event: ReactMouseEvent<HTMLDivElement>, entry: GitLogEntry) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const copyItem = await MenuItem.new({
-        text: "Copy SHA",
-        action: async () => {
-          await navigator.clipboard.writeText(entry.sha);
+      const items: ContextMenuItem[] = [
+        {
+          label: "Copy SHA",
+          onSelect: async () => {
+            await navigator.clipboard.writeText(entry.sha);
+          },
         },
-      });
-      const items = [copyItem];
+      ];
       if (githubBaseUrl) {
-        const openItem = await MenuItem.new({
-          text: "Open on GitHub",
-          action: async () => {
-            await openUrl(`${githubBaseUrl}/commit/${entry.sha}`);
+        items.push({
+          label: "Open on GitHub",
+          onSelect: async () => {
+            await openExternalUrl(`${githubBaseUrl}/commit/${entry.sha}`);
           },
         });
-        items.push(openItem);
       }
-      const menu = await Menu.new({ items });
-      const window = getCurrentWindow();
-      const position = new LogicalPosition(event.clientX, event.clientY);
-      await menu.popup(position, window);
+      await showContextMenuFromEvent(event, items);
     },
     [githubBaseUrl],
   );
@@ -947,23 +944,21 @@ export function GitDiffPanel({
       event: ReactMouseEvent<HTMLDivElement>,
       pullRequest: GitHubPullRequest,
     ) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const openItem = await MenuItem.new({
-        text: "Open on GitHub",
-        action: async () => {
-          await openUrl(pullRequest.url);
+      const items: ContextMenuItem[] = [
+        {
+          label: "Open on GitHub",
+          onSelect: async () => {
+            await openExternalUrl(pullRequest.url);
+          },
         },
-      });
-      const menu = await Menu.new({ items: [openItem] });
-      const window = getCurrentWindow();
-      const position = new LogicalPosition(event.clientX, event.clientY);
-      await menu.popup(position, window);
+      ];
+      await showContextMenuFromEvent(event, items);
     },
     [],
   );
 
   const discardFiles = useCallback(
+
     async (paths: string[]) => {
       if (!onRevertFile) {
         return;
@@ -976,7 +971,7 @@ export function GitDiffPanel({
       const message = isSingle
         ? `Discard changes in:\n\n${paths[0]}\n\nThis cannot be undone.`
         : `Discard changes in these files?\n\n${preview}${more}\n\nThis cannot be undone.`;
-      const confirmed = await ask(message, {
+      const confirmed = await confirmDialog(message, {
         title: "Discard changes",
         kind: "warning",
       });
@@ -1003,18 +998,12 @@ export function GitDiffPanel({
       path: string,
       _mode: "staged" | "unstaged",
     ) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      // Determine which files to operate on
-      // If clicked file is in selection, use all selected files; otherwise just this file
       const isInSelection = selectedFiles.has(path);
       const targetPaths =
         isInSelection && selectedFiles.size > 1
           ? Array.from(selectedFiles)
           : [path];
 
-      // If clicking on unselected file, select it
       if (!isInSelection) {
         setSelectedFiles(new Set([path]));
         setLastClickedFile(path);
@@ -1031,7 +1020,6 @@ export function GitDiffPanel({
       const fallbackRoot = normalizeRootPath(workspacePath);
       const resolvedRoot = normalizedRoot || inferredRoot || fallbackRoot;
 
-      // Separate files by their section for stage/unstage operations
       const stagedPaths = targetPaths.filter((p) =>
         stagedFiles.some((f) => f.path === p),
       );
@@ -1039,34 +1027,28 @@ export function GitDiffPanel({
         unstagedFiles.some((f) => f.path === p),
       );
 
-      const items: MenuItem[] = [];
+      const items: ContextMenuItem[] = [];
 
-      // Unstage action for staged files
       if (stagedPaths.length > 0 && onUnstageFile) {
-        items.push(
-          await MenuItem.new({
-            text: `Unstage file${stagedPaths.length > 1 ? `s (${stagedPaths.length})` : ""}`,
-            action: async () => {
-              for (const p of stagedPaths) {
-                await onUnstageFile(p);
-              }
-            },
-          }),
-        );
+        items.push({
+          label: `Unstage file${stagedPaths.length > 1 ? `s (${stagedPaths.length})` : ""}`,
+          onSelect: async () => {
+            for (const p of stagedPaths) {
+              await onUnstageFile(p);
+            }
+          },
+        });
       }
 
-      // Stage action for unstaged files
       if (unstagedPaths.length > 0 && onStageFile) {
-        items.push(
-          await MenuItem.new({
-            text: `Stage file${unstagedPaths.length > 1 ? `s (${unstagedPaths.length})` : ""}`,
-            action: async () => {
-              for (const p of unstagedPaths) {
-                await onStageFile(p);
-              }
-            },
-          }),
-        );
+        items.push({
+          label: `Stage file${unstagedPaths.length > 1 ? `s (${unstagedPaths.length})` : ""}`,
+          onSelect: async () => {
+            for (const p of unstagedPaths) {
+              await onStageFile(p);
+            }
+          },
+        });
       }
 
       if (targetPaths.length === 1) {
@@ -1082,10 +1064,15 @@ export function GitDiffPanel({
         const projectRelativePath =
           relativeRoot !== null ? joinRootAndPath(relativeRoot, rawPath) : rawPath;
         const fileName = getFileName(rawPath);
+
+        if (items.length > 0) {
+          items.push({ separator: true });
+        }
+
         items.push(
-          await MenuItem.new({
-            text: `Show in ${fileManagerLabel}`,
-            action: async () => {
+          {
+            label: `Show in ${fileManagerLabel}`,
+            onSelect: async () => {
               try {
                 if (!resolvedRoot && !isAbsolutePathForPlatform(absolutePath)) {
                   pushErrorToast({
@@ -1094,13 +1081,9 @@ export function GitDiffPanel({
                   });
                   return;
                 }
-                const { revealItemInDir } = await import(
-                  "@tauri-apps/plugin-opener"
-                );
                 await revealItemInDir(absolutePath);
               } catch (error) {
-                const message =
-                  error instanceof Error ? error.message : String(error);
+                const message = error instanceof Error ? error.message : String(error);
                 pushErrorToast({
                   title: `Couldn't show file in ${fileManagerLabel}`,
                   message,
@@ -1111,43 +1094,40 @@ export function GitDiffPanel({
                 });
               }
             },
-          }),
-        );
-        items.push(
-          await MenuItem.new({
-            text: "Copy file name",
-            action: async () => {
+          },
+          {
+            label: "Copy file name",
+            onSelect: async () => {
               await navigator.clipboard.writeText(fileName);
             },
-          }),
-          await MenuItem.new({
-            text: "Copy file path",
-            action: async () => {
+          },
+          {
+            label: "Copy file path",
+            onSelect: async () => {
               await navigator.clipboard.writeText(projectRelativePath);
             },
-          }),
+          },
         );
       }
 
-      // Revert action for all selected files
       if (onRevertFile) {
-        items.push(
-          await MenuItem.new({
-            text: `Discard change${plural}${countSuffix}`,
-            action: async () => {
-              await discardFiles(targetPaths);
-            },
-          }),
-        );
+        if (items.length > 0) {
+          items.push({ separator: true });
+        }
+        items.push({
+          label: `Discard change${plural}${countSuffix}`,
+          danger: true,
+          onSelect: async () => {
+            await discardFiles(targetPaths);
+          },
+        });
       }
 
       if (!items.length) {
         return;
       }
-      const menu = await Menu.new({ items });
-      const window = getCurrentWindow();
-      const position = new LogicalPosition(event.clientX, event.clientY);
-      await menu.popup(position, window);
+
+      await showContextMenuFromEvent(event, items);
     },
     [
       selectedFiles,
@@ -1162,7 +1142,8 @@ export function GitDiffPanel({
       workspacePath,
     ],
   );
-  const logCountLabel = logTotal
+  const logCountLabel =
+    logTotal
     ? `${logTotal} commit${logTotal === 1 ? "" : "s"}`
     : logEntries.length
       ? `${logEntries.length} commit${logEntries.length === 1 ? "" : "s"}`
@@ -1751,7 +1732,7 @@ export function GitDiffPanel({
                 href={issue.url}
                 onClick={(event) => {
                   event.preventDefault();
-                  void openUrl(issue.url);
+                  void openExternalUrl(issue.url);
                 }}
               >
                 <div className="git-issue-summary">

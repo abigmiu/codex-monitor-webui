@@ -1,0 +1,44 @@
+.platform-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 180px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.16));
+  background: var(--panel, rgba(20, 22, 25, 0.96));
+  backdrop-filter: blur(16px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.platform-context-menu-item {
+  border: none;
+  background: transparent;
+  color: var(--text, #f7f7f8);
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.platform-context-menu-item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.platform-context-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.platform-context-menu-item.is-danger {
+  color: #ff8c8c;
+}
+
+.platform-context-menu-separator {
+  height: 1px;
+  margin: 4px 2px;
+  background: rgba(255, 255, 255, 0.1);
+}

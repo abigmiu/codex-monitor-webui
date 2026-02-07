@@ -4,6 +4,7 @@ import type { BranchInfo, WorkspaceInfo } from "../../../types";
 import type { SettingsViewProps } from "../../settings/components/SettingsView";
 import { useRenameThreadPrompt } from "../../threads/hooks/useRenameThreadPrompt";
 import { useClonePrompt } from "../../workspaces/hooks/useClonePrompt";
+import { useWorkspacePathPrompt } from "../../workspaces/hooks/useWorkspacePathPrompt";
 import { useWorktreePrompt } from "../../workspaces/hooks/useWorktreePrompt";
 import type { BranchSwitcherState } from "../../git/hooks/useBranchSwitcher";
 import { useGitBranches } from "../../git/hooks/useGitBranches";
@@ -11,6 +12,11 @@ import { useGitBranches } from "../../git/hooks/useGitBranches";
 const RenameThreadPrompt = lazy(() =>
   import("../../threads/components/RenameThreadPrompt").then((module) => ({
     default: module.RenameThreadPrompt,
+  })),
+);
+const WorkspacePathPrompt = lazy(() =>
+  import("../../workspaces/components/WorkspacePathPrompt").then((module) => ({
+    default: module.WorkspacePathPrompt,
   })),
 );
 const WorktreePrompt = lazy(() =>
@@ -31,6 +37,10 @@ const BranchSwitcherPrompt = lazy(() =>
 
 type RenamePromptState = ReturnType<typeof useRenameThreadPrompt>["renamePrompt"];
 
+type WorkspacePathPromptState = ReturnType<
+  typeof useWorkspacePathPrompt
+>["workspacePathPrompt"];
+
 type WorktreePromptState = ReturnType<typeof useWorktreePrompt>["worktreePrompt"];
 
 type ClonePromptState = ReturnType<typeof useClonePrompt>["clonePrompt"];
@@ -40,6 +50,10 @@ type AppModalsProps = {
   onRenamePromptChange: (value: string) => void;
   onRenamePromptCancel: () => void;
   onRenamePromptConfirm: () => void;
+  workspacePathPrompt: WorkspacePathPromptState;
+  onWorkspacePathPromptChange: (value: string) => void;
+  onWorkspacePathPromptCancel: () => void;
+  onWorkspacePathPromptConfirm: () => void;
   worktreePrompt: WorktreePromptState;
   onWorktreePromptNameChange: (value: string) => void;
   onWorktreePromptChange: (value: string) => void;
@@ -73,6 +87,10 @@ export const AppModals = memo(function AppModals({
   onRenamePromptChange,
   onRenamePromptCancel,
   onRenamePromptConfirm,
+  workspacePathPrompt,
+  onWorkspacePathPromptChange,
+  onWorkspacePathPromptCancel,
+  onWorkspacePathPromptConfirm,
   worktreePrompt,
   onWorktreePromptNameChange,
   onWorktreePromptChange,
@@ -114,6 +132,18 @@ export const AppModals = memo(function AppModals({
             onChange={onRenamePromptChange}
             onCancel={onRenamePromptCancel}
             onConfirm={onRenamePromptConfirm}
+          />
+        </Suspense>
+      )}
+      {workspacePathPrompt && (
+        <Suspense fallback={null}>
+          <WorkspacePathPrompt
+            path={workspacePathPrompt.path}
+            error={workspacePathPrompt.error}
+            isBusy={workspacePathPrompt.isSubmitting}
+            onChange={onWorkspacePathPromptChange}
+            onCancel={onWorkspacePathPromptCancel}
+            onConfirm={onWorkspacePathPromptConfirm}
           />
         </Suspense>
       )}

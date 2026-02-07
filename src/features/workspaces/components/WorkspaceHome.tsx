@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type RefObject,
 } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { workspaceFileSrc } from "../../../platform/fileSrc";
 import type {
   AppOption,
   CustomPromptOption,
@@ -187,7 +187,7 @@ export function WorkspaceHome({
     CSSProperties | undefined
   >(undefined);
   const iconPath = useMemo(() => buildIconPath(workspace.path), [workspace.path]);
-  const iconSrc = useMemo(() => convertFileSrc(iconPath), [iconPath]);
+  const iconSrc = useMemo(() => workspaceFileSrc(workspace.id, iconPath), [workspace.id, iconPath]);
   const runModeRef = useRef<HTMLDivElement | null>(null);
   const modelsRef = useRef<HTMLDivElement | null>(null);
   const fallbackTextareaRef = useRef<HTMLTextAreaElement | null>(null);

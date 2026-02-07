@@ -1,4 +1,5 @@
-import { listen } from "@tauri-apps/api/event";
+import { subscribeDictationWeb } from "../platform/dictation";
+import { subscribeRpcNotification } from "../platform/rpcClient";
 import type { AppServerEvent, DictationEvent, DictationModelStatus } from "../types";
 
 export type Unsubscribe = () => void;
@@ -23,45 +24,36 @@ type Listener<T> = (payload: T) => void;
 function createEventHub<T>(eventName: string) {
   const listeners = new Set<Listener<T>>();
   let unlisten: Unsubscribe | null = null;
-  let listenPromise: Promise<Unsubscribe> | null = null;
 
   const start = (options?: SubscriptionOptions) => {
-    if (unlisten || listenPromise) {
+    if (unlisten) {
       return;
     }
-    listenPromise = listen<T>(eventName, (event) => {
-      for (const listener of listeners) {
-        try {
-          listener(event.payload);
-        } catch (error) {
-          console.error(`[events] ${eventName} listener failed`, error);
+    try {
+      unlisten = subscribeRpcNotification(eventName, (payload) => {
+        for (const listener of listeners) {
+          try {
+            listener(payload as T);
+          } catch (error) {
+            console.error(`[events] ${eventName} listener failed`, error);
+          }
         }
-      }
-    });
-    listenPromise
-      .then((handler) => {
-        listenPromise = null;
-        if (listeners.size === 0) {
-          handler();
-          return;
-        }
-        unlisten = handler;
-      })
-      .catch((error) => {
-        listenPromise = null;
-        options?.onError?.(error);
       });
+    } catch (error) {
+      options?.onError?.(error);
+    }
   };
 
   const stop = () => {
-    if (unlisten) {
-      try {
-        unlisten();
-      } catch {
-        // Ignore double-unlisten when tearing down.
-      }
-      unlisten = null;
+    if (!unlisten) {
+      return;
     }
+    try {
+      unlisten();
+    } catch {
+      // Ignore double-unlisten when tearing down.
+    }
+    unlisten = null;
   };
 
   const subscribe = (
@@ -129,7 +121,12 @@ export function subscribeDictationEvents(
   onEvent: (event: DictationEvent) => void,
   options?: SubscriptionOptions,
 ): Unsubscribe {
-  return dictationEventHub.subscribe(onEvent, options);
+  const unlistenRpc = dictationEventHub.subscribe(onEvent, options);
+  const unlistenWeb = subscribeDictationWeb(onEvent);
+  return () => {
+    unlistenRpc();
+    unlistenWeb();
+  };
 }
 
 export function subscribeTerminalOutput(

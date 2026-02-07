@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ask, open } from "@tauri-apps/plugin-dialog";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { confirmDialog, openFileDialog } from "../../../platform/dialog";
+import { revealInFileManager } from "../../../platform/opener";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
 import LayoutGrid from "lucide-react/dist/esm/icons/layout-grid";
@@ -613,7 +613,7 @@ export function SettingsView({
     setOpenConfigError(null);
     try {
       const configPath = await getCodexConfigPath();
-      await revealItemInDir(configPath);
+      await revealInFileManager(configPath);
     } catch (error) {
       setOpenConfigError(
         error instanceof Error ? error.message : "Unable to open config.",
@@ -957,7 +957,7 @@ export function SettingsView({
   };
 
   const handleBrowseCodex = async () => {
-    const selection = await open({ multiple: false, directory: false });
+    const selection = await openFileDialog({ multiple: false, directory: false });
     if (!selection || Array.isArray(selection)) {
       return;
     }
@@ -1096,7 +1096,7 @@ export function SettingsView({
   };
 
   const handleChooseGroupCopiesFolder = async (group: WorkspaceGroup) => {
-    const selection = await open({ multiple: false, directory: true });
+    const selection = await openFileDialog({ multiple: false, directory: true });
     if (!selection || Array.isArray(selection)) {
       return;
     }
@@ -1117,7 +1117,7 @@ export function SettingsView({
       groupProjects.length > 0
         ? `\n\nProjects in this group will move to "${ungroupedLabel}".`
         : "";
-    const confirmed = await ask(
+    const confirmed = await confirmDialog(
       `Delete "${group.name}"?${detail}`,
       {
         title: "Delete Group",
@@ -2059,13 +2059,13 @@ export function SettingsView({
               <section className="settings-section">
                 <div className="settings-section-title">Dictation</div>
                 <div className="settings-section-subtitle">
-                  Enable microphone dictation with on-device transcription.
+                  Enable microphone dictation in supported browsers (Web Speech API).
                 </div>
                 <div className="settings-toggle-row">
                   <div>
                     <div className="settings-toggle-title">Enable dictation</div>
                     <div className="settings-toggle-subtitle">
-                      Downloads the selected Whisper model on first use.
+                      Uses your browser speech engine; no local model download is required.
                     </div>
                   </div>
                   <button
@@ -2099,7 +2099,7 @@ export function SettingsView({
                 </div>
                 <div className="settings-field">
                   <label className="settings-field-label" htmlFor="dictation-model">
-                    Dictation model
+                    Recognition profile
                   </label>
                   <select
                     id="dictation-model"
@@ -2189,15 +2189,15 @@ export function SettingsView({
                 {dictationModelStatus && (
                   <div className="settings-field">
                     <div className="settings-field-label">
-                      Model status ({selectedDictationModel.label})
+                      Browser support ({selectedDictationModel.label})
                     </div>
                     <div className="settings-help">
-                      {dictationModelStatus.state === "ready" && "Ready for dictation."}
-                      {dictationModelStatus.state === "missing" && "Model not downloaded yet."}
+                      {dictationModelStatus.state === "ready" && "Speech recognition is available in this browser."}
+                      {dictationModelStatus.state === "missing" && "Speech recognition is not available in this browser."}
                       {dictationModelStatus.state === "downloading" &&
-                        "Downloading model..."}
+                        "Preparing speech recognition..."}
                       {dictationModelStatus.state === "error" &&
-                        (dictationModelStatus.error ?? "Download error.")}
+                        (dictationModelStatus.error ?? "Speech recognition error.")}
                     </div>
                     {dictationProgress && (
                       <div className="settings-download-progress">
@@ -2229,7 +2229,7 @@ export function SettingsView({
                           onClick={onDownloadDictationModel}
                           disabled={!onDownloadDictationModel}
                         >
-                          Download model
+                          Enable in browser
                         </button>
                       )}
                       {dictationModelStatus.state === "downloading" && (
@@ -2239,7 +2239,7 @@ export function SettingsView({
                           onClick={onCancelDictationDownload}
                           disabled={!onCancelDictationDownload}
                         >
-                          Cancel download
+                          Stop
                         </button>
                       )}
                       {dictationReady && (
@@ -2249,7 +2249,7 @@ export function SettingsView({
                           onClick={onRemoveDictationModel}
                           disabled={!onRemoveDictationModel}
                         >
-                          Remove model
+                          Reset
                         </button>
                       )}
                     </div>

@@ -1,9 +1,7 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
-
 export type DragDropPayload = {
   type: "enter" | "over" | "leave" | "drop";
   position: { x: number; y: number };
-  paths?: string[];
+  files?: File[];
 };
 
 export type DragDropEvent = {
@@ -16,49 +14,63 @@ type SubscriptionOptions = {
   onError?: (error: unknown) => void;
 };
 
-let unlisten: (() => void) | null = null;
-let listenPromise: Promise<() => void> | null = null;
 const listeners = new Set<Listener>();
+let initialized = false;
 
-function start(options?: SubscriptionOptions) {
-  if (unlisten || listenPromise) {
-    return;
+function emit(payload: DragDropPayload) {
+  for (const listener of listeners) {
+    try {
+      listener({ payload });
+    } catch (error) {
+      console.error("[drag-drop] listener failed", error);
+    }
   }
-  listenPromise = getCurrentWindow()
-    .onDragDropEvent((event) => {
-      for (const listener of listeners) {
-        try {
-          listener(event as DragDropEvent);
-        } catch (error) {
-          console.error("[drag-drop] listener failed", error);
-        }
-      }
-    }) as Promise<() => void>;
-  listenPromise
-    .then((handler) => {
-      listenPromise = null;
-      if (listeners.size === 0) {
-        handler();
-        return;
-      }
-      unlisten = handler;
-    })
-    .catch((error) => {
-      listenPromise = null;
-      options?.onError?.(error);
-    });
 }
 
-function stop() {
-  if (!unlisten) {
+function toPayloadType(type: string): DragDropPayload["type"] | null {
+  if (type === "dragenter") {
+    return "enter";
+  }
+  if (type === "dragover") {
+    return "over";
+  }
+  if (type === "dragleave") {
+    return "leave";
+  }
+  if (type === "drop") {
+    return "drop";
+  }
+  return null;
+}
+
+function ensureListeners(options?: SubscriptionOptions) {
+  if (initialized || typeof window === "undefined") {
     return;
   }
-  try {
-    unlisten();
-  } catch {
-    // Ignore double-unlisten when tearing down.
-  }
-  unlisten = null;
+  initialized = true;
+
+  const handler = (event: DragEvent) => {
+    const payloadType = toPayloadType(event.type);
+    if (!payloadType) {
+      return;
+    }
+
+    try {
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      emit({
+        type: payloadType,
+        position: { x: event.clientX, y: event.clientY },
+        files,
+      });
+    } catch (error) {
+      options?.onError?.(error);
+    }
+  };
+
+  window.addEventListener("dragenter", handler);
+  window.addEventListener("dragover", handler);
+  window.addEventListener("dragleave", handler);
+  window.addEventListener("drop", handler);
 }
 
 export function subscribeWindowDragDrop(
@@ -66,11 +78,8 @@ export function subscribeWindowDragDrop(
   options?: SubscriptionOptions,
 ) {
   listeners.add(onEvent);
-  start(options);
+  ensureListeners(options);
   return () => {
     listeners.delete(onEvent);
-    if (listeners.size === 0) {
-      stop();
-    }
   };
 }

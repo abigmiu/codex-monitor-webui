@@ -2,11 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { convertFileSrc } from "@tauri-apps/api/core";
-import { Menu, MenuItem } from "@tauri-apps/api/menu";
-import { LogicalPosition } from "@tauri-apps/api/dpi";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { showContextMenuFromEvent } from "../../../platform/contextMenu";
+import { workspaceFileSrc } from "../../../platform/fileSrc";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import ChevronsUpDown from "lucide-react/dist/esm/icons/chevrons-up-down";
 import File from "lucide-react/dist/esm/icons/file";
@@ -14,7 +11,7 @@ import Folder from "lucide-react/dist/esm/icons/folder";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import Search from "lucide-react/dist/esm/icons/search";
 import { PanelTabs, type PanelTabId } from "../../layout/components/PanelTabs";
-import { readWorkspaceFile } from "../../../services/tauri";
+import { readWorkspaceFile, revealItemInDir } from "../../../services/tauri";
 import type { OpenAppTarget } from "../../../types";
 import { useDebouncedValue } from "../../../hooks/useDebouncedValue";
 import { languageFromPath } from "../../../utils/syntax";
@@ -337,11 +334,11 @@ export function FileTreePanel({
       return null;
     }
     try {
-      return convertFileSrc(resolvePath(previewPath));
+      return workspaceFileSrc(workspaceId, previewPath);
     } catch {
       return null;
     }
-  }, [previewPath, previewKind, resolvePath]);
+  }, [previewPath, previewKind, workspaceId]);
 
   const openPreview = useCallback((path: string, target: HTMLElement) => {
     const rect = target.getBoundingClientRect();
@@ -546,31 +543,24 @@ export function FileTreePanel({
 
   const showMenu = useCallback(
     async (event: MouseEvent<HTMLButtonElement>, relativePath: string) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const menu = await Menu.new({
-        items: [
-          await MenuItem.new({
-            text: "Add to chat",
-            enabled: canInsertText,
-            action: async () => {
-              if (!canInsertText) {
-                return;
-              }
-              onInsertText?.(relativePath);
-            },
-          }),
-          await MenuItem.new({
-            text: revealInFileManagerLabel(),
-            action: async () => {
-              await revealItemInDir(resolvePath(relativePath));
-            },
-          }),
-        ],
-      });
-      const window = getCurrentWindow();
-      const position = new LogicalPosition(event.clientX, event.clientY);
-      await menu.popup(position, window);
+      await showContextMenuFromEvent(event, [
+        {
+          label: "Add to chat",
+          enabled: canInsertText,
+          onSelect: () => {
+            if (!canInsertText) {
+              return;
+            }
+            onInsertText?.(relativePath);
+          },
+        },
+        {
+          label: revealInFileManagerLabel(),
+          onSelect: async () => {
+            await revealItemInDir(resolvePath(relativePath));
+          },
+        },
+      ]);
     },
     [canInsertText, onInsertText, resolvePath],
   );

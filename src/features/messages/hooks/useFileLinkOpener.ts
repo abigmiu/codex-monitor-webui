@@ -1,10 +1,6 @@
 import { useCallback } from "react";
 import type { MouseEvent } from "react";
-import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
-import { LogicalPosition } from "@tauri-apps/api/dpi";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { openWorkspaceIn } from "../../../services/tauri";
+import { openWorkspaceIn, revealItemInDir } from "../../../services/tauri";
 import { pushErrorToast } from "../../../services/toasts";
 import type { OpenAppTarget } from "../../../types";
 import {
@@ -12,6 +8,7 @@ import {
   joinWorkspacePath,
   revealInFileManagerLabel,
 } from "../../../utils/platformPaths";
+import { showContextMenuFromEvent } from "../../../platform/contextMenu";
 
 type OpenTarget = {
   id: string;
@@ -131,8 +128,6 @@ export function useFileLinkOpener(
 
   const showFileLinkMenu = useCallback(
     async (event: MouseEvent, rawPath: string) => {
-      event.preventDefault();
-      event.stopPropagation();
       const target = {
         ...DEFAULT_OPEN_TARGET,
         ...(openTargets.find((entry) => entry.id === selectedOpenAppId) ??
@@ -152,20 +147,21 @@ export function useFileLinkOpener(
             : appName
               ? `Open in ${appName}`
               : "Set app name in Settings";
-      const items = [
-        await MenuItem.new({
-          text: openLabel,
+
+      await showContextMenuFromEvent(event, [
+        {
+          label: openLabel,
           enabled: canOpen,
-          action: async () => {
+          onSelect: async () => {
             await openFileLink(rawPath);
           },
-        }),
+        },
         ...(target.kind === "finder"
           ? []
           : [
-              await MenuItem.new({
-                text: revealInFileManagerLabel(),
-                action: async () => {
+              {
+                label: revealInFileManagerLabel(),
+                onSelect: async () => {
                   try {
                     await revealItemInDir(resolvedPath);
                   } catch (error) {
@@ -180,15 +176,15 @@ export function useFileLinkOpener(
                     });
                   }
                 },
-              }),
+              },
             ]),
-        await MenuItem.new({
-          text: "Download Linked File",
+        {
+          label: "Download Linked File",
           enabled: false,
-        }),
-        await MenuItem.new({
-          text: "Copy Link",
-          action: async () => {
+        },
+        {
+          label: "Copy Link",
+          onSelect: async () => {
             const link =
               resolvedPath.startsWith("/") ? `file://${resolvedPath}` : resolvedPath;
             try {
@@ -197,15 +193,13 @@ export function useFileLinkOpener(
               // Clipboard failures are non-fatal here.
             }
           },
-        }),
-        await PredefinedMenuItem.new({ item: "Separator" }),
-        await PredefinedMenuItem.new({ item: "Services" }),
-      ];
-
-      const menu = await Menu.new({ items });
-      const window = getCurrentWindow();
-      const position = new LogicalPosition(event.clientX, event.clientY);
-      await menu.popup(position, window);
+        },
+        { separator: true },
+        {
+          label: "Services",
+          enabled: false,
+        },
+      ]);
     },
     [openFileLink, openTargets, reportOpenError, selectedOpenAppId, workspacePath],
   );

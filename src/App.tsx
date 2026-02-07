@@ -26,6 +26,7 @@ import "./styles/worktree-modal.css";
 import "./styles/clone-modal.css";
 import "./styles/branch-switcher-modal.css";
 import "./styles/settings.css";
+import "./styles/context-menu.css";
 import "./styles/compact-base.css";
 import "./styles/compact-phone.css";
 import "./styles/compact-tablet.css";
@@ -60,7 +61,7 @@ import { useWorkspaceRestore } from "./features/workspaces/hooks/useWorkspaceRes
 import { useRenameWorktreePrompt } from "./features/workspaces/hooks/useRenameWorktreePrompt";
 import { useLayoutController } from "./features/app/hooks/useLayoutController";
 import { useWindowLabel } from "./features/layout/hooks/useWindowLabel";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { revealItemInDir } from "./services/tauri";
 import {
   SidebarCollapseButton,
   TitlebarExpandControls,
@@ -78,6 +79,7 @@ import { useComposerInsert } from "./features/app/hooks/useComposerInsert";
 import { useRenameThreadPrompt } from "./features/threads/hooks/useRenameThreadPrompt";
 import { useWorktreePrompt } from "./features/workspaces/hooks/useWorktreePrompt";
 import { useClonePrompt } from "./features/workspaces/hooks/useClonePrompt";
+import { useWorkspacePathPrompt } from "./features/workspaces/hooks/useWorkspacePathPrompt";
 import { useWorkspaceController } from "./features/app/hooks/useWorkspaceController";
 import { useWorkspaceSelection } from "./features/workspaces/hooks/useWorkspaceSelection";
 import { useLocalUsage } from "./features/home/hooks/useLocalUsage";
@@ -1492,7 +1494,6 @@ function MainApp() {
   });
 
   const {
-    handleAddWorkspace,
     handleAddWorkspaceFromPath,
     handleAddAgent,
     handleAddWorktreeAgent,
@@ -1513,6 +1514,33 @@ function MainApp() {
     onDebug: addDebugEntry,
   });
 
+  const {
+    workspacePathPrompt,
+    openPrompt: openWorkspacePathPrompt,
+    cancelPrompt: cancelWorkspacePathPrompt,
+    updatePath: updateWorkspacePathPrompt,
+    confirmPrompt: confirmWorkspacePathPrompt,
+  } = useWorkspacePathPrompt({
+    onConfirmPath: async (path) => {
+      const workspace = await addWorkspaceFromPath(path);
+      if (!workspace) {
+        return;
+      }
+      setActiveThreadId(null, workspace.id);
+      if (isCompact) {
+        setActiveTab("codex");
+      }
+    },
+    onError: (message) => {
+      addDebugEntry({
+        id: `${Date.now()}-client-add-workspace-error`,
+        timestamp: Date.now(),
+        source: "error",
+        label: "workspace/add error",
+        payload: message,
+      });
+    },
+  });
   const handleDropWorkspacePaths = useCallback(
     async (paths: string[]) => {
       const uniquePaths = Array.from(
@@ -1723,7 +1751,7 @@ function MainApp() {
     activeWorkspaceRef,
     baseWorkspaceRef,
     onAddWorkspace: () => {
-      void handleAddWorkspace();
+      openWorkspacePathPrompt();
     },
     onAddAgent: (workspace) => {
       void handleAddAgent(workspace);
@@ -1817,7 +1845,7 @@ function MainApp() {
     onOpenDictationSettings: () => openSettings("dictation"),
     onOpenDebug: handleDebugClick,
     showDebugButton,
-    onAddWorkspace: handleAddWorkspace,
+    onAddWorkspace: openWorkspacePathPrompt,
     onSelectHome: () => {
       resetPullRequestSelection();
       clearDraftState();
@@ -2337,6 +2365,12 @@ function MainApp() {
         onRenamePromptChange={handleRenamePromptChange}
         onRenamePromptCancel={handleRenamePromptCancel}
         onRenamePromptConfirm={handleRenamePromptConfirm}
+        workspacePathPrompt={workspacePathPrompt}
+        onWorkspacePathPromptChange={updateWorkspacePathPrompt}
+        onWorkspacePathPromptCancel={cancelWorkspacePathPrompt}
+        onWorkspacePathPromptConfirm={() => {
+          void confirmWorkspacePathPrompt();
+        }}
         worktreePrompt={worktreePrompt}
         onWorktreePromptNameChange={updateWorktreeName}
         onWorktreePromptChange={updateWorktreeBranch}

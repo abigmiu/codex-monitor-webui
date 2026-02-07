@@ -27,7 +27,8 @@
     "pretauri:dev:win": "npm run sync:material-icons",
     "tauri:dev:win": "npm run doctor:win && tauri dev --config src-tauri/tauri.windows.conf.json",
     "pretauri:build:win": "npm run sync:material-icons",
-    "tauri:build:win": "npm run doctor:win && tauri build --config src-tauri/tauri.windows.conf.json"
+    "tauri:build:win": "npm run doctor:win && tauri build --config src-tauri/tauri.windows.conf.json",
+    "start:web": "codex-monitor"
   },
   "dependencies": {
     "@pierre/diffs": "^1.0.6",
@@ -65,5 +66,8 @@
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
     "vitest": "^3.2.4"
+  },
+  "bin": {
+    "codex-monitor": "./bin/codex-monitor.mjs"
   }
 }

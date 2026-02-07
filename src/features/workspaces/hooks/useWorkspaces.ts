@@ -6,7 +6,7 @@ import type {
   WorkspaceInfo,
   WorkspaceSettings,
 } from "../../../types";
-import { ask, message } from "@tauri-apps/plugin-dialog";
+import { alertDialog, confirmDialog } from "../../../platform/dialog";
 import {
   addClone as addCloneService,
   addWorkspace as addWorkspaceService,
@@ -658,7 +658,7 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
           } on disk.`
         : "";
 
-    const confirmed = await ask(
+    const confirmed = await confirmDialog(
       `Are you sure you want to delete "${workspaceName}"?\n\nThis will remove the workspace from CodexMonitor.${detail}`,
       {
         title: "Delete Workspace",
@@ -699,7 +699,7 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
         label: "workspace/remove error",
         payload: errorMessage,
       });
-      void message(errorMessage, {
+      void alertDialog(errorMessage, {
         title: "Delete workspace failed",
         kind: "error",
       });
@@ -710,7 +710,7 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
     const workspace = workspaces.find((entry) => entry.id === workspaceId);
     const workspaceName = workspace?.name || "this worktree";
 
-    const confirmed = await ask(
+    const confirmed = await confirmDialog(
       `Are you sure you want to delete "${workspaceName}"?\n\nThis will close the agent, remove its worktree, and delete it from CodexMonitor.`,
       {
         title: "Delete Worktree",
@@ -749,7 +749,7 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
         label: "worktree/remove error",
         payload: errorMessage,
       });
-      void message(errorMessage, {
+      void alertDialog(errorMessage, {
         title: "Delete worktree failed",
         kind: "error",
       });

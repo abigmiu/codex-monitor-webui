@@ -1,7 +1,5 @@
 import { useCallback } from "react";
-import { LogicalPosition } from "@tauri-apps/api/dpi";
-import { Menu, MenuItem } from "@tauri-apps/api/menu";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { showContextMenuFromEvent } from "../../../platform/contextMenu";
 import type { QueuedMessage } from "../../../types";
 
 type ComposerQueueProps = {
@@ -17,21 +15,16 @@ export function ComposerQueue({
 }: ComposerQueueProps) {
   const handleQueueMenu = useCallback(
     async (event: React.MouseEvent, item: QueuedMessage) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const { clientX, clientY } = event;
-      const editItem = await MenuItem.new({
-        text: "Edit",
-        action: () => onEditQueued?.(item),
-      });
-      const deleteItem = await MenuItem.new({
-        text: "Delete",
-        action: () => onDeleteQueued?.(item.id),
-      });
-      const menu = await Menu.new({ items: [editItem, deleteItem] });
-      const window = getCurrentWindow();
-      const position = new LogicalPosition(clientX, clientY);
-      await menu.popup(position, window);
+      await showContextMenuFromEvent(event, [
+        {
+          label: "Edit",
+          onSelect: () => onEditQueued?.(item),
+        },
+        {
+          label: "Delete",
+          onSelect: () => onDeleteQueued?.(item.id),
+        },
+      ]);
     },
     [onDeleteQueued, onEditQueued],
   );

@@ -15,7 +15,9 @@ jobs:
       matrix:
         include:
           # Only build Linux for now. Re-enable other platforms by adding matrix entries back.
-          - runner: ubuntu-24.04
+          # Use ubuntu-22.04 to keep the produced binary compatible with older glibc
+          # (ubuntu-24.04 builds can require GLIBC_2.39 at runtime).
+          - runner: ubuntu-22.04
             rust_target: x86_64-unknown-linux-gnu
             asset_suffix: linux-x64
             ext: ""

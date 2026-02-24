@@ -1,0 +1,25 @@
+$:
+  vscode:
+    - docker:
+        image: docker.cnb.cool/abigmiu/extendedenv
+      runner:
+        cpus: 16
+      services:
+        - name: vscode
+          options:
+            keepAliveTimeout: 28800000
+        - docker
+      env:
+        PROJECT_NAME: cnb-codexMonitorWebui
+      imports:
+        - https://cnb.cool/abigmiu/keys/-/blob/main/codex.yaml
+
+'**':
+  push:
+    - docker:
+        image: alpine/git:latest
+      imports:
+        - https://cnb.cool/abigmiu/keys/-/blob/main/keys.yml
+      stages:
+        - name: sync-to-github
+          script: sh .build/sync-to-github.sh

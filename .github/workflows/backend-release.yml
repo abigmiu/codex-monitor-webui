@@ -1,0 +1,190 @@
+name: Backend Release (codex_monitor_web)
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_npm:
+        type: boolean
+        description: Publish the npm package after uploading backend assets
+        default: false
+      npm_tag:
+        type: string
+        description: npm dist-tag to publish under (only when publish_npm=true)
+        default: latest
+
+permissions:
+  contents: write
+
+jobs:
+  build_backend:
+    name: build backend (${{ matrix.asset_suffix }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            rust_target: aarch64-apple-darwin
+            asset_suffix: darwin-arm64
+            ext: ""
+          - runner: macos-latest
+            rust_target: x86_64-apple-darwin
+            asset_suffix: darwin-x64
+            ext: ""
+          - runner: ubuntu-24.04
+            rust_target: x86_64-unknown-linux-gnu
+            asset_suffix: linux-x64
+            ext: ""
+          - runner: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+            asset_suffix: linux-arm64
+            ext: ""
+          - runner: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            asset_suffix: win32-x64
+            ext: ".exe"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Linux deps (for tauri crate)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            libgtk-3-dev \
+            librsvg2-dev \
+            libasound2-dev \
+            pkg-config
+          sudo apt-get install -y libwebkit2gtk-4.1-dev || sudo apt-get install -y libwebkit2gtk-4.0-dev
+          sudo apt-get install -y libayatana-appindicator3-dev || sudo apt-get install -y libappindicator3-dev
+
+      - name: Install CMake (macOS)
+        if: runner.os == 'macOS'
+        run: command -v cmake >/dev/null 2>&1 || brew install cmake
+
+      - name: Install LLVM (bindgen) (Windows)
+        if: runner.os == 'Windows'
+        run: choco install llvm -y --no-progress
+
+      - name: Configure LLVM (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> $env:GITHUB_ENV
+          echo "C:\\Program Files\\LLVM\\bin" >> $env:GITHUB_PATH
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Build codex_monitor_web (release)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd src-tauri
+          cargo build --release --bin codex_monitor_web --target "${{ matrix.rust_target }}"
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p release-backend
+          SRC="src-tauri/target/${{ matrix.rust_target }}/release/codex_monitor_web${{ matrix.ext }}"
+          DEST="release-backend/codex_monitor_web-${{ matrix.asset_suffix }}${{ matrix.ext }}"
+          if [ ! -f "$SRC" ]; then
+            echo "Missing build output: $SRC"
+            ls -la "src-tauri/target/${{ matrix.rust_target }}/release" || true
+            exit 1
+          fi
+          cp "$SRC" "$DEST"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Upload backend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-${{ matrix.asset_suffix }}
+          path: release-backend/*
+
+  release_backend:
+    name: upload backend assets to GitHub Release
+    runs-on: ubuntu-latest
+    needs: build_backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Download backend artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: backend-*
+          path: release-backend
+          merge-multiple: true
+
+      - name: Compute checksums
+        run: |
+          set -euo pipefail
+          cd release-backend
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create or update GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v${VERSION}"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release exists: $TAG"
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes "Backend binaries for codex-monitor v${VERSION}" \
+              --target "$GITHUB_SHA"
+          fi
+
+          gh release upload "$TAG" release-backend/* --clobber
+
+  publish_npm:
+    name: publish npm
+    runs-on: ubuntu-latest
+    needs: release_backend
+    if: ${{ inputs.publish_npm }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        env:
+          CODEX_MONITOR_SKIP_BACKEND_DOWNLOAD: "1"
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --tag "${{ inputs.npm_tag }}"

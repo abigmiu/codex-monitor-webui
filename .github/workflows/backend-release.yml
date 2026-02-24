@@ -2,15 +2,6 @@ name: Backend Release (codex_monitor_web)
 
 on:
   workflow_dispatch:
-    inputs:
-      publish_npm:
-        type: boolean
-        description: Publish the npm package after uploading backend assets
-        default: false
-      npm_tag:
-        type: string
-        description: npm dist-tag to publish under (only when publish_npm=true)
-        default: latest
 
 permissions:
   contents: write
@@ -253,30 +244,3 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           TAG="v${VERSION}"
           gh release upload "$TAG" release-backend/* --clobber
-
-  publish_npm:
-    name: publish npm
-    runs-on: ubuntu-latest
-    needs: release_backend
-    if: ${{ inputs.publish_npm }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          registry-url: https://registry.npmjs.org
-
-      - name: Install dependencies
-        env:
-          CODEX_MONITOR_SKIP_BACKEND_DOWNLOAD: "1"
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --tag "${{ inputs.npm_tag }}"

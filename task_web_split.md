@@ -98,5 +98,5 @@
 - [x] `codex-monitor` 后端使用预编译/下载的 `codex_monitor_web`（无 Rust/cargo 也能运行）：安装时 `postinstall` 预下载，运行时仍支持自动下载兜底；支持 `--backend-path`/`--backend-cache-dir` 与环境变量配置下载源
 - [x] npm 包不再打包 `src-tauri` / `target` 等 Rust 源码与构建产物，避免体积膨胀与误触发 Rust 依赖
 - [x] CI：新增 GitHub Actions 工作流构建 `codex_monitor_web`（mac/linux/windows）并上传到 GitHub Release，资产命名与下载器一致
-- [x] CI：backend release 工作流补齐 `setup-node` + Linux 依赖安装 fallback；npm publish job 跳过 postinstall 下载（更稳定）
+- [x] CI：backend release 工作流补齐 `setup-node` + Linux 依赖安装 fallback（更稳定）
 - [x] Launcher：优先使用缓存/下载的后端二进制，避免 PATH 中同名但不兼容的后端导致启动失败

@@ -76,6 +76,9 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
+          # Avoid reusing target/ artifacts across different runner images (glibc versions),
+          # otherwise cached build-scripts can fail to execute (e.g. GLIBC_2.39 not found).
+          shared-key: ${{ matrix.runner }}-${{ matrix.rust_target }}
           workspaces: './src-tauri -> target'
 
       - name: Build codex_monitor_web (release)

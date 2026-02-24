@@ -176,6 +176,7 @@ jobs:
     name: upload backend assets to GitHub Release
     runs-on: ubuntu-latest
     needs: build_backend_main
+    if: ${{ always() }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -191,6 +192,13 @@ jobs:
           pattern: backend-*
           path: release-backend
           merge-multiple: true
+
+      - name: Show staged artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Artifacts downloaded to:"
+          ls -la release-backend || true
 
       - name: Compute checksums
         run: |

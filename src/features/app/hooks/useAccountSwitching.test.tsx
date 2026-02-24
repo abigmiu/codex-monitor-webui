@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppServerEvent, AccountSnapshot } from "../../../types";
 import { cancelCodexLogin, runCodexLogin } from "../../../services/tauri";
 import { subscribeAppServerEvents } from "../../../services/events";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openExternalUrl } from "../../../platform/opener";
 import { useAccountSwitching } from "./useAccountSwitching";
 
 vi.mock("../../../services/tauri", () => ({
@@ -17,8 +17,8 @@ vi.mock("../../../services/events", () => ({
   subscribeAppServerEvents: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: vi.fn(),
+vi.mock("../../../platform/opener", () => ({
+  openExternalUrl: vi.fn(),
 }));
 
 type Handlers = Parameters<typeof useAccountSwitching>[0];
@@ -95,7 +95,7 @@ describe("useAccountSwitching", () => {
     });
 
     expect(runCodexLogin).toHaveBeenCalledWith("ws-1");
-    expect(openUrl).toHaveBeenCalledWith("https://example.com/auth");
+    expect(openExternalUrl).toHaveBeenCalledWith("https://example.com/auth");
     expect(refreshAccountInfo).not.toHaveBeenCalled();
     expect(refreshAccountRateLimits).not.toHaveBeenCalled();
     expect(latest?.accountSwitching).toBe(true);
@@ -207,7 +207,7 @@ describe("useAccountSwitching", () => {
       await Promise.resolve();
     });
 
-    expect(openUrl).not.toHaveBeenCalled();
+    expect(openExternalUrl).not.toHaveBeenCalled();
     expect(cancelCodexLogin).toHaveBeenCalledWith("ws-1");
     expect(refreshAccountInfo).not.toHaveBeenCalled();
     expect(refreshAccountRateLimits).not.toHaveBeenCalled();
@@ -239,7 +239,7 @@ describe("useAccountSwitching", () => {
 
     expect(latest?.accountSwitching).toBe(false);
     expect(alertError).not.toHaveBeenCalled();
-    expect(openUrl).not.toHaveBeenCalled();
+    expect(openExternalUrl).not.toHaveBeenCalled();
     expect(cancelCodexLogin).not.toHaveBeenCalled();
 
     await act(async () => {

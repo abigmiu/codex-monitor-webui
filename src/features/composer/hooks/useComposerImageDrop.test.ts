@@ -9,7 +9,7 @@ let mockOnDragDropEvent:
       payload: {
         type: "enter" | "over" | "leave" | "drop";
         position: { x: number; y: number };
-        paths?: string[];
+        files?: File[];
       };
     }) => void)
   | null = null;
@@ -68,7 +68,8 @@ function setMockFileReader() {
     onerror: ((ev: ProgressEvent<FileReader>) => unknown) | null = null;
 
     readAsDataURL(file: File) {
-      this.result = `data:${file.type};base64,MOCK`;
+      const name = encodeURIComponent(file.name || "file");
+      this.result = `data:${file.type};name=${name};base64,MOCK`;
       this.onload?.({} as ProgressEvent<FileReader>);
     }
   }
@@ -106,12 +107,12 @@ describe("useComposerImageDrop", () => {
     hook.unmount();
   });
 
-  it("uses file paths on drop when available", async () => {
+  it("reads image data URLs on drop", async () => {
+    const restoreFileReader = setMockFileReader();
     const onAttachImages = vi.fn();
     const hook = renderImageDropHook({ disabled: false, onAttachImages });
 
     const file = new File(["data"], "photo.png", { type: "image/png" });
-    (file as File & { path?: string }).path = "/tmp/photo.png";
 
     await act(async () => {
       await hook.result.handleDrop({
@@ -120,9 +121,12 @@ describe("useComposerImageDrop", () => {
       } as unknown as React.DragEvent<HTMLElement>);
     });
 
-    expect(onAttachImages).toHaveBeenCalledWith(["/tmp/photo.png"]);
+    expect(onAttachImages).toHaveBeenCalledWith([
+      "data:image/png;name=photo.png;base64,MOCK",
+    ]);
 
     hook.unmount();
+    restoreFileReader();
   });
 
   it("reads image data URLs when paths are missing", async () => {
@@ -140,7 +144,7 @@ describe("useComposerImageDrop", () => {
     });
 
     expect(onAttachImages).toHaveBeenCalledWith([
-      "data:image/jpeg;base64,MOCK",
+      "data:image/jpeg;name=photo.jpg;base64,MOCK",
     ]);
 
     hook.unmount();
@@ -168,14 +172,15 @@ describe("useComposerImageDrop", () => {
 
     expect(preventDefault).toHaveBeenCalled();
     expect(onAttachImages).toHaveBeenCalledWith([
-      "data:image/png;base64,MOCK",
+      "data:image/png;name=paste.png;base64,MOCK",
     ]);
 
     hook.unmount();
     restoreFileReader();
   });
 
-  it("filters tauri drag-drop paths and respects drop target", async () => {
+  it("respects the drop target for global window drops", async () => {
+    const restoreFileReader = setMockFileReader();
     const onAttachImages = vi.fn();
     const hook = renderImageDropHook({ disabled: false, onAttachImages });
 
@@ -202,7 +207,7 @@ describe("useComposerImageDrop", () => {
         payload: {
           type: "over",
           position: { x: 40, y: 40 },
-          paths: [],
+          files: [],
         },
       });
     });
@@ -214,14 +219,24 @@ describe("useComposerImageDrop", () => {
         payload: {
           type: "drop",
           position: { x: 40, y: 40 },
-          paths: [" /tmp/photo.png ", "/tmp/note.txt"],
+          files: [
+            new File(["data"], "photo.png", { type: "image/png" }),
+            new File(["data"], "note.txt", { type: "text/plain" }),
+          ],
         },
       });
     });
 
-    expect(onAttachImages).toHaveBeenCalledWith(["/tmp/photo.png"]);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(onAttachImages).toHaveBeenCalledWith([
+      "data:image/png;name=photo.png;base64,MOCK",
+    ]);
 
     hook.unmount();
+    restoreFileReader();
   });
 
   it("ignores drag/drop and paste when disabled", async () => {

@@ -1,12 +1,6 @@
 /* @vitest-environment jsdom */
 import { renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-
-vi.mock("@tauri-apps/api/window", () => ({
-	getCurrentWindow: vi.fn(() => {
-		throw new Error("no tauri window");
-	}),
-}));
+import { describe, expect, it } from "vitest";
 
 import { useWindowFocusState } from "./useWindowFocusState";
 

@@ -12,9 +12,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { AppSettings, WorkspaceInfo } from "../../../types";
 import { SettingsView } from "./SettingsView";
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  ask: vi.fn(),
-  open: vi.fn(),
+vi.mock("../../../platform/dialog", () => ({
+  confirmDialog: vi.fn(),
+  alertDialog: vi.fn(),
+  openFileDialog: vi.fn(),
 }));
 
 const baseSettings: AppSettings = {

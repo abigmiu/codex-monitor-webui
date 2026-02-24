@@ -6,36 +6,18 @@ import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceInfo } from "../../../types";
 import { useSidebarMenus } from "./useSidebarMenus";
 import { fileManagerName } from "../../../utils/platformPaths";
+import type { ContextMenuItem } from "../../../platform/contextMenu";
 
-const menuNew = vi.hoisted(() =>
-  vi.fn(async ({ items }) => ({ popup: vi.fn(), items })),
+const showContextMenuFromEventMock = vi.hoisted(() =>
+  vi.fn(async (_event: unknown, _items: ContextMenuItem[]) => {}),
 );
-const menuItemNew = vi.hoisted(() => vi.fn(async (options) => options));
 
-vi.mock("@tauri-apps/api/menu", () => ({
-  Menu: { new: menuNew },
-  MenuItem: { new: menuItemNew },
+vi.mock("../../../platform/contextMenu", () => ({
+  showContextMenuFromEvent: showContextMenuFromEventMock,
 }));
 
-vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({ scaleFactor: () => 1 }),
-}));
-
-vi.mock("@tauri-apps/api/dpi", () => ({
-  LogicalPosition: class LogicalPosition {
-    x: number;
-    y: number;
-    constructor(x: number, y: number) {
-      this.x = x;
-      this.y = y;
-    }
-  },
-}));
-
-const revealItemInDir = vi.hoisted(() => vi.fn());
-
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  revealItemInDir: (...args: unknown[]) => revealItemInDir(...args),
+vi.mock("../../../services/tauri", () => ({
+  revealItemInDir: vi.fn(),
 }));
 
 vi.mock("../../../services/toasts", () => ({
@@ -90,13 +72,18 @@ describe("useSidebarMenus", () => {
 
     await result.current.showWorktreeMenu(event, worktree);
 
-    const menuArgs = menuNew.mock.calls[0]?.[0];
-    const revealItem = menuArgs.items.find(
-      (item: { text: string }) => item.text === `Show in ${fileManagerName()}`,
+    const call = showContextMenuFromEventMock.mock.calls[0];
+    if (!call) {
+      throw new Error("Context menu was not shown");
+    }
+    const menuItems = call[1];
+    const revealItem = menuItems.find(
+      (item) => item.label === `Show in ${fileManagerName()}`,
     );
 
     expect(revealItem).toBeDefined();
-    await revealItem.action();
-    expect(revealItemInDir).toHaveBeenCalledWith("/tmp/worktree-1");
+    await revealItem?.onSelect?.();
+    const { revealItemInDir } = await import("../../../services/tauri");
+    expect(vi.mocked(revealItemInDir)).toHaveBeenCalledWith("/tmp/worktree-1");
   });
 });

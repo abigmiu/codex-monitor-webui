@@ -45,15 +45,17 @@ CodexMonitor is a Web app for orchestrating multiple Codex agents across local w
 ## Requirements
 
 - Node.js + npm
-- Rust toolchain (stable)
-- CMake (required for native dependencies; dictation/Whisper uses it)
-- LLVM/Clang (required on Windows to build dictation dependencies via bindgen)
 - Codex installed on your system and available as `codex` in `PATH`
 - Git CLI (used for worktree operations)
 - GitHub CLI (`gh`) for the Issues panel (optional)
 
+Local backend options (choose one):
+- Recommended: let `codex-monitor` download a prebuilt `codex_monitor_web` binary on first run (no Rust needed).
+- Advanced: install your own backend binary and point `codex-monitor` at it via `--backend-path` / `CODEX_MONITOR_BACKEND_PATH`.
+- Dev-only: run the backend from source via `cargo` (requires Rust toolchain).
+
 If the `codex` binary is not in `PATH`, update the backend to pass a custom path per workspace.
-If you hit native build errors, run:
+If you build the backend from source and hit native build errors, run:
 
 ```bash
 npm run doctor
@@ -61,26 +63,15 @@ npm run doctor
 
 ## Getting Started
 
-Install dependencies:
+### Install from npm (recommended)
 
 ```bash
-npm install
-```
-
-### Optional: install global command
-
-From this repository root:
-
-```bash
-npm install -g .
-# or: npm link
-```
-
-Then run:
-
-```bash
+npm install -g @abigmiu/codex-monitor
 codex-monitor
 ```
+
+Runtime requirements:
+- Codex CLI (`codex`) available in `PATH`
 
 Useful flags:
 - `--backend-only` / `--frontend-only`
@@ -88,8 +79,40 @@ Useful flags:
 - `--data-dir ~/.codexmonitor-web`
 - `--token dev-token` (or `--no-token`)
 - `--frontend-port 5173`
+- `--backend-path /path/to/codex_monitor_web`
+- `--backend-cache-dir ~/.codexmonitor-web` (where the backend binary is cached)
 
-### 1) Start the Rust web backend
+Backend download configuration:
+- `CODEX_MONITOR_BACKEND_URL`: direct URL to a platform-specific backend binary
+- `CODEX_MONITOR_BACKEND_RELEASE_BASE`: base URL for release downloads (by default derived from `package.json` `repository.url`)
+- `CODEX_MONITOR_BACKEND_RELEASE_TAG`: defaults to `v<package-version>`
+- `CODEX_MONITOR_BACKEND_ASSET`: defaults to `codex_monitor_web-<platform>-<arch>[.exe]`
+- `CODEX_MONITOR_BACKEND_CACHE_DIR`: where to store downloaded binaries
+- `CODEX_MONITOR_SKIP_BACKEND_DOWNLOAD=1`: disable auto-download (CI/offline)
+- `CODEX_MONITOR_BACKEND_INSTALL_STRICT=1`: make install-time download failures fail the npm install
+
+Backend release asset naming (recommended):
+- macOS: `codex_monitor_web-darwin-arm64`, `codex_monitor_web-darwin-x64`
+- Linux: `codex_monitor_web-linux-arm64`, `codex_monitor_web-linux-x64`
+- Windows: `codex_monitor_web-win32-x64.exe`
+
+Note: the npm install step runs a `postinstall` hook that downloads the backend binary. If you install with `--ignore-scripts`, the download is skipped and the backend will be fetched on first run instead (unless you disable downloads).
+
+### Install from local source
+
+```bash
+npm install
+npm run build
+npm install -g .
+# or: npm link
+codex-monitor
+```
+
+If you use `npm link`, logs can show your local repo path (symlink behavior). A published npm install will run from global `node_modules`.
+
+### Manual dev mode (backend + Vite)
+
+1) Start backend:
 
 ```bash
 cd src-tauri
@@ -99,10 +122,7 @@ TMPDIR=../.tmp cargo run --bin codex_monitor_web -- \
   --token dev-token
 ```
 
-- `--token` is optional. If you omit it, clients can connect without authentication.
-- `--data-dir` stores `workspaces.json` and `settings.json`.
-
-### 2) Start the frontend
+2) Start frontend:
 
 ```bash
 VITE_CODEX_MONITOR_API_BASE=http://127.0.0.1:4732 \
@@ -110,14 +130,18 @@ VITE_CODEX_MONITOR_TOKEN=dev-token \
 npm run dev
 ```
 
-Optional env vars:
-- `VITE_CODEX_MONITOR_RPC_URL` (defaults to `<api-base>/rpc`)
-- `VITE_CODEX_MONITOR_TOKEN` (can also be provided via `localStorage["codex_monitor_token"]`)
-
-### 3) Build production frontend assets
+3) Build frontend assets:
 
 ```bash
 npm run build
+```
+
+### Publish to npm
+
+```bash
+npm login
+npm run pack:check
+npm publish --access public
 ```
 
 ## Type Checking

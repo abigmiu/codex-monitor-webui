@@ -9,7 +9,7 @@ let mockOnDragDropEvent:
       payload: {
         type: "enter" | "over" | "leave" | "drop";
         position: { x: number; y: number };
-        paths?: string[];
+        files?: File[];
       };
     }) => void)
   | null = null;
@@ -94,12 +94,21 @@ describe("useWorkspaceDropZone", () => {
   it("emits file paths on drop when available", () => {
     const onDropPaths = vi.fn();
     const hook = renderDropHook({ onDropPaths });
-    const file = new File(["data"], "project", { type: "application/octet-stream" });
-    (file as File & { path?: string }).path = "/tmp/project";
 
     act(() => {
       hook.result.handleDrop({
-        dataTransfer: { files: [file], items: [] },
+        dataTransfer: {
+          types: ["Files"],
+          getData: (type: string) => {
+            if (type === "text/uri-list") {
+              return "file:///tmp/project\n";
+            }
+            if (type === "text/plain") {
+              return "";
+            }
+            return "";
+          },
+        },
         preventDefault: () => {},
       } as unknown as React.DragEvent<HTMLElement>);
     });

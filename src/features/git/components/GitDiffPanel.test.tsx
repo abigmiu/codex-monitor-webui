@@ -4,42 +4,28 @@ import { describe, expect, it, vi } from "vitest";
 import type { GitLogEntry } from "../../../types";
 import { GitDiffPanel } from "./GitDiffPanel";
 import { fileManagerName } from "../../../utils/platformPaths";
+import type { ContextMenuItem } from "../../../platform/contextMenu";
 
-const menuNew = vi.hoisted(() =>
-  vi.fn(async ({ items }) => ({ popup: vi.fn(), items })),
-);
-const menuItemNew = vi.hoisted(() => vi.fn(async (options) => options));
 const clipboardWriteText = vi.hoisted(() => vi.fn());
 
-vi.mock("@tauri-apps/api/menu", () => ({
-  Menu: { new: menuNew },
-  MenuItem: { new: menuItemNew },
+const showContextMenuFromEventMock = vi.hoisted(() =>
+  vi.fn(async (_event: unknown, _items: ContextMenuItem[]) => {}),
+);
+
+vi.mock("../../../platform/contextMenu", () => ({
+  showContextMenuFromEvent: showContextMenuFromEventMock,
 }));
 
-vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({ scaleFactor: () => 1 }),
+vi.mock("../../../platform/dialog", () => ({
+  confirmDialog: vi.fn(async () => true),
 }));
 
-vi.mock("@tauri-apps/api/dpi", () => ({
-  LogicalPosition: class LogicalPosition {
-    x: number;
-    y: number;
-    constructor(x: number, y: number) {
-      this.x = x;
-      this.y = y;
-    }
-  },
+vi.mock("../../../platform/opener", () => ({
+  openExternalUrl: vi.fn(),
 }));
 
-const revealItemInDir = vi.hoisted(() => vi.fn());
-
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: vi.fn(),
-  revealItemInDir: (...args: unknown[]) => revealItemInDir(...args),
-}));
-
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  ask: vi.fn(async () => true),
+vi.mock("../../../services/tauri", () => ({
+  revealItemInDir: vi.fn(),
 }));
 
 vi.mock("../../../services/toasts", () => ({
@@ -105,19 +91,24 @@ describe("GitDiffPanel", () => {
     expect(row).not.toBeNull();
     fireEvent.contextMenu(row as Element);
 
-    await waitFor(() => expect(menuNew).toHaveBeenCalled());
-    const menuArgs = menuNew.mock.calls[0]?.[0];
-    const revealItem = menuArgs.items.find(
-      (item: { text: string }) => item.text === `Show in ${fileManagerName()}`,
+    await waitFor(() => expect(showContextMenuFromEventMock).toHaveBeenCalled());
+    const call = showContextMenuFromEventMock.mock.calls[0];
+    if (!call) {
+      throw new Error("Context menu was not shown");
+    }
+    const revealItem = call[1].find(
+      (item) => item.label === `Show in ${fileManagerName()}`,
     );
 
     expect(revealItem).toBeDefined();
-    await revealItem.action();
-    expect(revealItemInDir).toHaveBeenCalledWith("/tmp/repo/src/sample.ts");
+    await revealItem?.onSelect?.();
+    const { revealItemInDir } = await import("../../../services/tauri");
+    expect(vi.mocked(revealItemInDir)).toHaveBeenCalledWith("/tmp/repo/src/sample.ts");
   });
 
   it("copies file name and path from the context menu", async () => {
     clipboardWriteText.mockClear();
+    showContextMenuFromEventMock.mockClear();
     const { container } = render(
       <GitDiffPanel
         {...baseProps}
@@ -133,28 +124,27 @@ describe("GitDiffPanel", () => {
     expect(row).not.toBeNull();
     fireEvent.contextMenu(row as Element);
 
-    await waitFor(() => expect(menuNew).toHaveBeenCalled());
-    const menuArgs = menuNew.mock.calls[menuNew.mock.calls.length - 1]?.[0];
-    const copyNameItem = menuArgs.items.find(
-      (item: { text: string }) => item.text === "Copy file name",
-    );
-    const copyPathItem = menuArgs.items.find(
-      (item: { text: string }) => item.text === "Copy file path",
-    );
+    await waitFor(() => expect(showContextMenuFromEventMock).toHaveBeenCalled());
+    const lastCall =
+      showContextMenuFromEventMock.mock.calls[showContextMenuFromEventMock.mock.calls.length - 1];
+    if (!lastCall) {
+      throw new Error("Context menu was not shown");
+    }
+    const copyNameItem = lastCall[1].find((item) => item.label === "Copy file name");
+    const copyPathItem = lastCall[1].find((item) => item.label === "Copy file path");
 
     expect(copyNameItem).toBeDefined();
     expect(copyPathItem).toBeDefined();
 
-    await copyNameItem.action();
-    await copyPathItem.action();
+    await copyNameItem?.onSelect?.();
+    await copyPathItem?.onSelect?.();
 
     expect(clipboardWriteText).toHaveBeenCalledWith("sample.ts");
     expect(clipboardWriteText).toHaveBeenCalledWith("src/sample.ts");
   });
 
   it("resolves relative git roots against the workspace path", async () => {
-    revealItemInDir.mockClear();
-    menuNew.mockClear();
+    showContextMenuFromEventMock.mockClear();
     const { container } = render(
       <GitDiffPanel
         {...baseProps}
@@ -170,19 +160,25 @@ describe("GitDiffPanel", () => {
     expect(row).not.toBeNull();
     fireEvent.contextMenu(row as Element);
 
-    await waitFor(() => expect(menuNew).toHaveBeenCalled());
-    const menuArgs = menuNew.mock.calls[menuNew.mock.calls.length - 1]?.[0];
-    const revealItem = menuArgs.items.find(
-      (item: { text: string }) => item.text === `Show in ${fileManagerName()}`,
+    await waitFor(() => expect(showContextMenuFromEventMock).toHaveBeenCalled());
+    const lastCall =
+      showContextMenuFromEventMock.mock.calls[showContextMenuFromEventMock.mock.calls.length - 1];
+    if (!lastCall) {
+      throw new Error("Context menu was not shown");
+    }
+    const revealItem = lastCall[1].find(
+      (item) => item.label === `Show in ${fileManagerName()}`,
     );
 
     expect(revealItem).toBeDefined();
-    await revealItem.action();
-    expect(revealItemInDir).toHaveBeenCalledWith("/tmp/repo/apps/src/sample.ts");
+    await revealItem?.onSelect?.();
+    const { revealItemInDir } = await import("../../../services/tauri");
+    expect(vi.mocked(revealItemInDir)).toHaveBeenCalledWith("/tmp/repo/apps/src/sample.ts");
   });
 
   it("copies file path relative to the workspace root", async () => {
     clipboardWriteText.mockClear();
+    showContextMenuFromEventMock.mockClear();
     const { container } = render(
       <GitDiffPanel
         {...baseProps}
@@ -198,20 +194,23 @@ describe("GitDiffPanel", () => {
     expect(row).not.toBeNull();
     fireEvent.contextMenu(row as Element);
 
-    await waitFor(() => expect(menuNew).toHaveBeenCalled());
-    const menuArgs = menuNew.mock.calls[menuNew.mock.calls.length - 1]?.[0];
-    const copyPathItem = menuArgs.items.find(
-      (item: { text: string }) => item.text === "Copy file path",
-    );
+    await waitFor(() => expect(showContextMenuFromEventMock).toHaveBeenCalled());
+    const lastCall =
+      showContextMenuFromEventMock.mock.calls[showContextMenuFromEventMock.mock.calls.length - 1];
+    if (!lastCall) {
+      throw new Error("Context menu was not shown");
+    }
+    const copyPathItem = lastCall[1].find((item) => item.label === "Copy file path");
 
     expect(copyPathItem).toBeDefined();
-    await copyPathItem.action();
+    await copyPathItem?.onSelect?.();
 
     expect(clipboardWriteText).toHaveBeenCalledWith("apps/src/sample.ts");
   });
 
   it("does not trim paths when the git root only shares a prefix", async () => {
     clipboardWriteText.mockClear();
+    showContextMenuFromEventMock.mockClear();
     const { container } = render(
       <GitDiffPanel
         {...baseProps}
@@ -227,14 +226,16 @@ describe("GitDiffPanel", () => {
     expect(row).not.toBeNull();
     fireEvent.contextMenu(row as Element);
 
-    await waitFor(() => expect(menuNew).toHaveBeenCalled());
-    const menuArgs = menuNew.mock.calls[menuNew.mock.calls.length - 1]?.[0];
-    const copyPathItem = menuArgs.items.find(
-      (item: { text: string }) => item.text === "Copy file path",
-    );
+    await waitFor(() => expect(showContextMenuFromEventMock).toHaveBeenCalled());
+    const lastCall =
+      showContextMenuFromEventMock.mock.calls[showContextMenuFromEventMock.mock.calls.length - 1];
+    if (!lastCall) {
+      throw new Error("Context menu was not shown");
+    }
+    const copyPathItem = lastCall[1].find((item) => item.label === "Copy file path");
 
     expect(copyPathItem).toBeDefined();
-    await copyPathItem.action();
+    await copyPathItem?.onSelect?.();
 
     expect(clipboardWriteText).toHaveBeenCalledWith("src/sample.ts");
   });

@@ -1,4 +1,13 @@
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
+import { cleanup } from "@testing-library/react";
+
+if (!("window" in globalThis)) {
+  Object.defineProperty(globalThis, "window", {
+    value: { event: undefined },
+    writable: true,
+    configurable: true,
+  });
+}
 
 if (!("IS_REACT_ACT_ENVIRONMENT" in globalThis)) {
   Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
@@ -87,3 +96,10 @@ if (!existingLocalStorage || typeof existingLocalStorage.clear !== "function") {
     configurable: true,
   });
 }
+
+afterEach(async () => {
+  if (typeof document !== "undefined") {
+    cleanup();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+});

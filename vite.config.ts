@@ -1,9 +1,34 @@
-import { readFileSync } from "node:fs";
+import { accessSync, constants, mkdirSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+
+function ensureWritableTmpdir() {
+  const candidate = process.env.TMPDIR || process.env.TMP || process.env.TEMP;
+  const fallback = resolve(process.cwd(), ".tmp", "vitest");
+  const target = candidate?.trim() ? candidate.trim() : fallback;
+
+  try {
+    mkdirSync(target, { recursive: true });
+    accessSync(target, constants.W_OK);
+    process.env.TMPDIR = target;
+    process.env.TMP = target;
+    process.env.TEMP = target;
+    return;
+  } catch {
+    // ignore
+  }
+
+  mkdirSync(fallback, { recursive: true });
+  process.env.TMPDIR = fallback;
+  process.env.TMP = fallback;
+  process.env.TEMP = fallback;
+}
+
+ensureWritableTmpdir();
 
 const packageJson = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf-8"),

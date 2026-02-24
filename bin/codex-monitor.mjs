@@ -1,15 +1,28 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { accessSync, constants, existsSync, mkdirSync } from "node:fs";
+import {
+  accessSync,
+  constants,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+} from "node:fs";
+import { stat, rename, chmod, mkdir } from "node:fs/promises";
 import { createConnection } from "node:net";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, "..");
-const tauriDir = resolve(projectRoot, "src-tauri");
+const distDir = resolve(projectRoot, "dist");
+const frontendServerScript = resolve(projectRoot, "scripts", "serve-frontend.mjs");
+const packageJsonPath = resolve(projectRoot, "package.json");
 
 const DEFAULT_LISTEN = "127.0.0.1:4732";
+const DEFAULT_FRONTEND_HOST = "127.0.0.1";
 const DEFAULT_FRONTEND_PORT = 5173;
 const DEFAULT_TOKEN = "dev-token";
 const DEFAULT_BACKEND_READY_TIMEOUT_MS = 180_000;
@@ -17,7 +30,7 @@ const DEFAULT_BACKEND_RETRY_INTERVAL_MS = 300;
 
 const homeDir = process.env.HOME || process.env.USERPROFILE || projectRoot;
 const DEFAULT_DATA_DIR = resolve(homeDir, ".codexmonitor-web");
-const DEFAULT_TMP_DIR = resolve(projectRoot, ".tmp");
+const DEFAULT_TMP_DIR = resolve(homeDir, ".codexmonitor", "tmp");
 
 function printHelp() {
   console.log(`codex-monitor - start CodexMonitor web stack
@@ -30,15 +43,25 @@ OPTIONS:
   --data-dir <path>       Backend data directory (default: ${DEFAULT_DATA_DIR})
   --token <token>         Shared backend/frontend token (default: ${DEFAULT_TOKEN})
   --no-token              Disable auth token
-  --frontend-port <port>  Vite dev server port (default: ${DEFAULT_FRONTEND_PORT})
+  --backend-path <path>   Use an existing backend executable (skips download)
+  --backend-cache-dir <path>  Backend binary cache directory (default: ${DEFAULT_DATA_DIR})
+  --no-backend-download   Disable backend auto-download
+  --frontend-port <port>  Frontend server port (default: ${DEFAULT_FRONTEND_PORT})
   --backend-only          Start backend only
   --frontend-only         Start frontend only
   -h, --help              Show this help
+
+NOTES:
+  - Frontend serves prebuilt static assets from dist/.
+  - If dist/ is missing, run: npm run build
+  - Backend is started from a native binary when available (no Rust required).
+  - Dev fallback: if no backend binary is available, we can run via cargo (requires Rust).
 
 EXAMPLES:
   codex-monitor
   codex-monitor --token my-token
   codex-monitor --backend-only --listen 127.0.0.1:4732
+  codex-monitor --frontend-only --listen 127.0.0.1:4732
 `);
 }
 
@@ -46,10 +69,13 @@ function parseArgs(argv) {
   const options = {
     listen: DEFAULT_LISTEN,
     dataDir: DEFAULT_DATA_DIR,
+    backendCacheDir: DEFAULT_DATA_DIR,
     token: DEFAULT_TOKEN,
     frontendPort: DEFAULT_FRONTEND_PORT,
     backendOnly: false,
     frontendOnly: false,
+    backendPath: null,
+    allowBackendDownload: true,
     help: false,
   };
 
@@ -70,6 +96,28 @@ function parseArgs(argv) {
     }
     if (arg === "--no-token") {
       options.token = null;
+      continue;
+    }
+    if (arg === "--backend-path") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error("Missing value for --backend-path");
+      }
+      options.backendPath = value;
+      index += 1;
+      continue;
+    }
+    if (arg === "--backend-cache-dir") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error("Missing value for --backend-cache-dir");
+      }
+      options.backendCacheDir = value;
+      index += 1;
+      continue;
+    }
+    if (arg === "--no-backend-download") {
+      options.allowBackendDownload = false;
       continue;
     }
     if (arg === "--listen") {
@@ -126,23 +174,32 @@ function commandFor(name) {
   return name;
 }
 
+function resolveCommandInPath(name) {
+  const rawPath = process.env.PATH ?? "";
+  const parts = rawPath.split(delimiter).filter(Boolean);
+  const candidates = process.platform === "win32" ? [`${name}.exe`, `${name}.cmd`, `${name}.bat`, name] : [name];
+
+  for (const dir of parts) {
+    for (const candidate of candidates) {
+      const fullPath = resolve(dir, candidate);
+      try {
+        accessSync(fullPath, constants.X_OK);
+        return fullPath;
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return null;
+}
+
 function spawnManaged(command, args, cwd, env) {
   return spawn(command, args, {
     cwd,
     env,
     stdio: "inherit",
   });
-}
-
-function ensureBackendPrereqs() {
-  if (!existsSync(tauriDir)) {
-    throw new Error(`Missing backend directory: ${tauriDir}`);
-  }
-  mkdirSync(DEFAULT_TMP_DIR, { recursive: true });
-}
-
-function buildApiBase(listenAddr) {
-  return `http://${listenAddr}`;
 }
 
 function isWritableDir(dirPath) {
@@ -177,6 +234,26 @@ function resolveTmpDir() {
   return DEFAULT_TMP_DIR;
 }
 
+function ensureBackendPrereqs() {
+  // No-op: backend can run from a downloaded/prebuilt executable.
+}
+
+function ensureFrontendPrereqs() {
+  if (!existsSync(frontendServerScript)) {
+    throw new Error(`Missing frontend server script: ${frontendServerScript}`);
+  }
+  const indexFile = resolve(distDir, "index.html");
+  if (!existsSync(indexFile)) {
+    throw new Error(
+      `Frontend assets not found: ${indexFile}. Run 'npm run build' before launching frontend.`,
+    );
+  }
+}
+
+function buildApiBase(listenAddr) {
+  return `http://${listenAddr}`;
+}
+
 function parseListenAddress(listenAddr) {
   try {
     const url = new URL(`http://${listenAddr}`);
@@ -190,6 +267,197 @@ function parseListenAddress(listenAddr) {
   }
 }
 
+function platformKey() {
+  const platform = process.platform;
+  const arch = process.arch;
+  return `${platform}-${arch}`;
+}
+
+function backendFilename() {
+  return process.platform === "win32" ? "codex_monitor_web.exe" : "codex_monitor_web";
+}
+
+function defaultBackendReleaseBase() {
+  const configured = (process.env.CODEX_MONITOR_BACKEND_RELEASE_BASE ?? "").trim();
+  if (configured) {
+    return configured;
+  }
+
+  const packageConfigured = readBackendReleaseBaseFromPackage();
+  if (packageConfigured) {
+    return packageConfigured;
+  }
+
+  const repositoryUrl = readPackageRepositoryUrl();
+  if (!repositoryUrl) {
+    return "";
+  }
+
+  // GitHub style: https://github.com/<org>/<repo>/releases/download/<tag>/<asset>
+  if (repositoryUrl.includes("github.com/")) {
+    return `${repositoryUrl.replace(/\/+$/, "")}/releases/download`;
+  }
+
+  // GitLab-like (CNB) style: https://<host>/<group>/<repo>/-/releases/<tag>/downloads/<asset>
+  return `${repositoryUrl.replace(/\/+$/, "")}/-/releases`;
+}
+
+function readPackageJson() {
+  try {
+    const raw = String(readFileSync(packageJsonPath, "utf8"));
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function readPackageVersion() {
+  try {
+    const parsed = readPackageJson();
+    const version = typeof parsed?.version === "string" ? String(parsed.version).trim() : "";
+    return version || "0.0.0";
+  } catch {
+    return process.env.npm_package_version?.trim() || "0.0.0";
+  }
+}
+
+function readPackageRepositoryUrl() {
+  const parsed = readPackageJson();
+  const url = parsed?.repository?.url;
+  if (typeof url !== "string") {
+    return "";
+  }
+  return url.trim().replace(/\.git$/i, "");
+}
+
+function readBackendReleaseBaseFromPackage() {
+  const parsed = readPackageJson();
+  const value = parsed?.codexMonitor?.backendReleaseBase;
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim();
+}
+
+function buildBackendDownloadUrl({ version, platform, releaseBase }) {
+  const tag = (process.env.CODEX_MONITOR_BACKEND_RELEASE_TAG ?? `v${version}`).trim();
+  const assetOverride = (process.env.CODEX_MONITOR_BACKEND_ASSET ?? "").trim();
+  const baseName = "codex_monitor_web";
+  const ext = process.platform === "win32" ? ".exe" : "";
+  const assetName = assetOverride || `${baseName}-${platform}${ext}`;
+
+  const normalizedBase = releaseBase.replace(/\/+$/, "");
+  if (normalizedBase.includes("/releases/download")) {
+    return `${normalizedBase}/${tag}/${assetName}`;
+  }
+  if (normalizedBase.includes("/-/releases")) {
+    return `${normalizedBase}/${tag}/downloads/${assetName}`;
+  }
+  return `${normalizedBase}/${tag}/${assetName}`;
+}
+
+function resolveBackendCacheDir(options) {
+  if (options.backendCacheDir) {
+    return options.backendCacheDir;
+  }
+  const envValue = (process.env.CODEX_MONITOR_BACKEND_CACHE_DIR ?? "").trim();
+  return envValue || DEFAULT_DATA_DIR;
+}
+
+async function ensureDownloadedBackend(options) {
+  const version = readPackageVersion();
+  const platform = platformKey();
+  const backendCacheDir = resolveBackendCacheDir(options);
+  const cacheDir = resolve(backendCacheDir, "backend", version, platform);
+  const targetPath = resolve(cacheDir, backendFilename());
+
+  try {
+    const info = await stat(targetPath);
+    if (info.isFile() && info.size > 0) {
+      return targetPath;
+    }
+  } catch {
+    // missing
+  }
+
+  if (!options.allowBackendDownload) {
+    return null;
+  }
+  if (process.env.CODEX_MONITOR_SKIP_BACKEND_DOWNLOAD === "1") {
+    return null;
+  }
+
+  const directUrl = (process.env.CODEX_MONITOR_BACKEND_URL ?? "").trim();
+  const releaseBase = defaultBackendReleaseBase();
+  if (!directUrl && !releaseBase) {
+    return null;
+  }
+  const downloadUrl =
+    directUrl ||
+    buildBackendDownloadUrl({
+      version,
+      platform,
+      releaseBase,
+    });
+
+  await mkdir(cacheDir, { recursive: true });
+  const tmpPath = `${targetPath}.download`;
+
+  console.log(`[codex-monitor] downloading backend: ${downloadUrl}`);
+  const response = await fetch(downloadUrl);
+  if (!response.ok || !response.body) {
+    throw new Error(
+      `Failed to download backend (${response.status}). Set CODEX_MONITOR_BACKEND_URL or CODEX_MONITOR_BACKEND_RELEASE_BASE.`,
+    );
+  }
+
+  await pipeline(Readable.fromWeb(response.body), createWriteStream(tmpPath));
+  await rename(tmpPath, targetPath);
+
+  if (process.platform !== "win32") {
+    await chmod(targetPath, 0o755);
+  }
+
+  return targetPath;
+}
+
+async function resolveBackendCommand(options) {
+  if (options.backendPath) {
+    return { command: options.backendPath, args: [] };
+  }
+
+  const envBackendPath = (process.env.CODEX_MONITOR_BACKEND_PATH ?? "").trim();
+  if (envBackendPath) {
+    return { command: envBackendPath, args: [] };
+  }
+
+  const downloaded = await ensureDownloadedBackend(options);
+  if (downloaded) {
+    return { command: downloaded, args: [] };
+  }
+
+  const inPath =
+    resolveCommandInPath("codex-monitor-web") ??
+    resolveCommandInPath("codex_monitor_web") ??
+    resolveCommandInPath("codex-monitor-web.exe") ??
+    resolveCommandInPath("codex_monitor_web.exe");
+  if (inPath) {
+    return { command: inPath, args: [] };
+  }
+
+  const cargo = resolveCommandInPath("cargo");
+  const tauriDir = resolve(projectRoot, "src-tauri");
+  if (cargo && existsSync(tauriDir)) {
+    return {
+      command: cargo,
+      args: ["run", "--bin", "codex_monitor_web", "--"],
+      cwd: tauriDir,
+    };
+  }
+
+  return null;
+}
+
 function waitForBackendReady(listenAddr, timeoutMs = DEFAULT_BACKEND_READY_TIMEOUT_MS) {
   const target = parseListenAddress(listenAddr);
   const startedAt = Date.now();
@@ -198,7 +466,11 @@ function waitForBackendReady(listenAddr, timeoutMs = DEFAULT_BACKEND_READY_TIMEO
     const attempt = () => {
       const elapsed = Date.now() - startedAt;
       if (elapsed > timeoutMs) {
-        reject(new Error(`timeout after ${Math.round(timeoutMs / 1000)}s (${target.host}:${target.port})`));
+        reject(
+          new Error(
+            `timeout after ${Math.round(timeoutMs / 1000)}s (${target.host}:${target.port})`,
+          ),
+        );
         return;
       }
 
@@ -232,21 +504,6 @@ function waitForBackendReady(listenAddr, timeoutMs = DEFAULT_BACKEND_READY_TIMEO
 }
 
 function startBackend(options) {
-  const cargoArgs = [
-    "run",
-    "--bin",
-    "codex_monitor_web",
-    "--",
-    "--listen",
-    options.listen,
-    "--data-dir",
-    options.dataDir,
-  ];
-
-  if (options.token) {
-    cargoArgs.push("--token", options.token);
-  }
-
   const tmpDir = resolveTmpDir();
   const backendEnv = {
     ...process.env,
@@ -256,32 +513,56 @@ function startBackend(options) {
   };
 
   console.log(`[codex-monitor] tmp dir: ${tmpDir}`);
-  return spawnManaged(commandFor("cargo"), cargoArgs, tauriDir, backendEnv);
+
+  return (async () => {
+    const resolved = await resolveBackendCommand(options);
+    if (!resolved) {
+      const hints = [
+        "Install a backend binary and ensure it is in PATH as `codex-monitor-web` / `codex_monitor_web`.",
+        "Or set `CODEX_MONITOR_BACKEND_PATH=/path/to/codex_monitor_web`.",
+        "Or set `CODEX_MONITOR_BACKEND_CACHE_DIR` to point at a cache containing the downloaded binary.",
+        "Or set `CODEX_MONITOR_BACKEND_URL` (direct download URL).",
+        "Or set `CODEX_MONITOR_BACKEND_RELEASE_BASE` (defaults to a GitHub Releases base).",
+        "Dev fallback: install Rust + cargo and run from source (repo clone).",
+      ];
+      throw new Error(`No backend available.\n- ${hints.join("\n- ")}`);
+    }
+
+    const args = [
+      ...(resolved.args ?? []),
+      "--listen",
+      options.listen,
+      "--data-dir",
+      options.dataDir,
+    ];
+
+    if (options.token) {
+      args.push("--token", options.token);
+    }
+
+    const cwd = resolved.cwd ?? projectRoot;
+    return spawnManaged(resolved.command, args, cwd, backendEnv);
+  })();
 }
 
 function startFrontend(options) {
-  const frontendEnv = {
-    ...process.env,
-    VITE_CODEX_MONITOR_API_BASE: buildApiBase(options.listen),
-  };
-
-  if (options.token) {
-    frontendEnv.VITE_CODEX_MONITOR_TOKEN = options.token;
-  } else {
-    delete frontendEnv.VITE_CODEX_MONITOR_TOKEN;
-  }
-
-  const npmArgs = [
-    "run",
-    "dev",
-    "--",
+  const args = [
+    frontendServerScript,
+    "--root",
+    distDir,
     "--host",
-    "127.0.0.1",
+    DEFAULT_FRONTEND_HOST,
     "--port",
     String(options.frontendPort),
+    "--api-base",
+    buildApiBase(options.listen),
   ];
 
-  return spawnManaged(commandFor("npm"), npmArgs, projectRoot, frontendEnv);
+  if (options.token) {
+    args.push("--token", options.token);
+  }
+
+  return spawnManaged(commandFor("node"), args, projectRoot, process.env);
 }
 
 function monitor(children) {
@@ -334,21 +615,26 @@ async function main() {
     return;
   }
 
-  ensureBackendPrereqs();
+  if (!options.frontendOnly) {
+    ensureBackendPrereqs();
+  }
+  if (!options.backendOnly) {
+    ensureFrontendPrereqs();
+  }
 
   console.log(
     `[codex-monitor] starting (${options.backendOnly ? "backend" : options.frontendOnly ? "frontend" : "backend + frontend"})`,
   );
   console.log(`[codex-monitor] backend: ${buildApiBase(options.listen)}`);
   if (!options.backendOnly) {
-    console.log(`[codex-monitor] frontend: http://127.0.0.1:${options.frontendPort}`);
+    console.log(`[codex-monitor] frontend: http://${DEFAULT_FRONTEND_HOST}:${options.frontendPort}`);
   }
 
   const children = [];
   let backendChild = null;
 
   if (!options.frontendOnly) {
-    backendChild = startBackend(options);
+    backendChild = await startBackend(options);
     children.push(backendChild);
   }
 

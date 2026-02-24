@@ -9,10 +9,6 @@ vi.mock("../../../services/dragDrop", () => ({
   subscribeWindowDragDrop: vi.fn(() => () => {}),
 }));
 
-vi.mock("@tauri-apps/api/core", () => ({
-  convertFileSrc: (path: string) => `tauri://${path}`,
-}));
-
 type HarnessProps = {
   activeThreadId: string | null;
   activeWorkspaceId: string | null;
@@ -152,7 +148,8 @@ function setMockFileReader() {
     onerror: ((ev: ProgressEvent<FileReader>) => unknown) | null = null;
 
     readAsDataURL(file: File) {
-      this.result = `data:${file.type};base64,MOCK`;
+      const name = encodeURIComponent(file.name || "file");
+      this.result = `data:${file.type};name=${name};base64,MOCK`;
       this.onload?.({} as ProgressEvent<FileReader>);
     }
   }
@@ -164,6 +161,7 @@ function setMockFileReader() {
 
 describe("Composer attachments integration", () => {
   it("attaches dropped image files, filters non-images, and dedupes paths", async () => {
+    const restoreFileReader = setMockFileReader();
     const harness = renderComposerHarness({
       activeThreadId: "thread-1",
       activeWorkspaceId: "ws-1",
@@ -171,29 +169,27 @@ describe("Composer attachments integration", () => {
     const textarea = getTextarea(harness.container);
 
     const image = new File(["data"], "photo.png", { type: "image/png" });
-    (image as File & { path?: string }).path = "/tmp/photo.png";
     const nonImage = new File(["data"], "notes.txt", { type: "text/plain" });
-    (nonImage as File & { path?: string }).path = "/tmp/notes.txt";
 
     await act(async () => {
       dispatchDrop(textarea, [image, nonImage]);
     });
 
-    expect(getAttachmentNames(harness.container)).toEqual(["photo.png"]);
+    expect(getAttachmentNames(harness.container)).toEqual(["Pasted image"]);
 
     const imageTwo = new File(["data"], "second.jpg", { type: "image/jpeg" });
-    (imageTwo as File & { path?: string }).path = "/tmp/second.jpg";
 
     await act(async () => {
       dispatchDrop(textarea, [image, imageTwo]);
     });
 
     expect(getAttachmentNames(harness.container)).toEqual([
-      "photo.png",
-      "second.jpg",
+      "Pasted image",
+      "Pasted image",
     ]);
 
     harness.unmount();
+    restoreFileReader();
   });
 
   it("attaches pasted images as data URLs and ignores non-image items", async () => {
@@ -219,6 +215,7 @@ describe("Composer attachments integration", () => {
   });
 
   it("removes attachments and clears drafts", async () => {
+    const restoreFileReader = setMockFileReader();
     const harness = renderComposerHarness({
       activeThreadId: "thread-1",
       activeWorkspaceId: "ws-1",
@@ -226,17 +223,15 @@ describe("Composer attachments integration", () => {
     const textarea = getTextarea(harness.container);
 
     const first = new File(["data"], "first.png", { type: "image/png" });
-    (first as File & { path?: string }).path = "/tmp/first.png";
     const second = new File(["data"], "second.png", { type: "image/png" });
-    (second as File & { path?: string }).path = "/tmp/second.png";
 
     await act(async () => {
       dispatchDrop(textarea, [first, second]);
     });
 
     expect(getAttachmentNames(harness.container)).toEqual([
-      "first.png",
-      "second.png",
+      "Pasted image",
+      "Pasted image",
     ]);
 
     const removeButtons = harness.container.querySelectorAll(
@@ -248,7 +243,7 @@ describe("Composer attachments integration", () => {
       (removeButtons[0] as HTMLButtonElement).click();
     });
 
-    expect(getAttachmentNames(harness.container)).toEqual(["second.png"]);
+    expect(getAttachmentNames(harness.container)).toEqual(["Pasted image"]);
 
     const clearButton = harness.container.querySelector(
       "[data-testid='clear-images']",
@@ -264,9 +259,11 @@ describe("Composer attachments integration", () => {
     expect(getAttachmentNames(harness.container)).toEqual([]);
 
     harness.unmount();
+    restoreFileReader();
   });
 
   it("keeps attachments scoped per thread", async () => {
+    const restoreFileReader = setMockFileReader();
     const harness = renderComposerHarness({
       activeThreadId: "thread-1",
       activeWorkspaceId: "ws-1",
@@ -276,13 +273,12 @@ describe("Composer attachments integration", () => {
     const threadOneImage = new File(["data"], "thread-one.png", {
       type: "image/png",
     });
-    (threadOneImage as File & { path?: string }).path = "/tmp/thread-one.png";
 
     await act(async () => {
       dispatchDrop(textarea, [threadOneImage]);
     });
 
-    expect(getAttachmentNames(harness.container)).toEqual(["thread-one.png"]);
+    expect(getAttachmentNames(harness.container)).toEqual(["Pasted image"]);
 
     harness.rerender({
       activeThreadId: "thread-2",
@@ -294,25 +290,26 @@ describe("Composer attachments integration", () => {
     const threadTwoImage = new File(["data"], "thread-two.png", {
       type: "image/png",
     });
-    (threadTwoImage as File & { path?: string }).path = "/tmp/thread-two.png";
 
     await act(async () => {
       dispatchDrop(getTextarea(harness.container), [threadTwoImage]);
     });
 
-    expect(getAttachmentNames(harness.container)).toEqual(["thread-two.png"]);
+    expect(getAttachmentNames(harness.container)).toEqual(["Pasted image"]);
 
     harness.rerender({
       activeThreadId: "thread-1",
       activeWorkspaceId: "ws-1",
     });
 
-    expect(getAttachmentNames(harness.container)).toEqual(["thread-one.png"]);
+    expect(getAttachmentNames(harness.container)).toEqual(["Pasted image"]);
 
     harness.unmount();
+    restoreFileReader();
   });
 
   it("keeps draft attachments scoped per workspace when no thread is active", async () => {
+    const restoreFileReader = setMockFileReader();
     const harness = renderComposerHarness({
       activeThreadId: null,
       activeWorkspaceId: "ws-1",
@@ -322,13 +319,12 @@ describe("Composer attachments integration", () => {
     const draftImage = new File(["data"], "draft-one.png", {
       type: "image/png",
     });
-    (draftImage as File & { path?: string }).path = "/tmp/draft-one.png";
 
     await act(async () => {
       dispatchDrop(textarea, [draftImage]);
     });
 
-    expect(getAttachmentNames(harness.container)).toEqual(["draft-one.png"]);
+    expect(getAttachmentNames(harness.container)).toEqual(["Pasted image"]);
 
     harness.rerender({
       activeThreadId: null,
@@ -342,8 +338,9 @@ describe("Composer attachments integration", () => {
       activeWorkspaceId: "ws-1",
     });
 
-    expect(getAttachmentNames(harness.container)).toEqual(["draft-one.png"]);
+    expect(getAttachmentNames(harness.container)).toEqual(["Pasted image"]);
 
     harness.unmount();
+    restoreFileReader();
   });
 });

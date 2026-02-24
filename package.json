@@ -10,7 +10,7 @@
     "url": "https://cnb.cool/abigmiu/codexMonitor-webui"
   },
   "codexMonitor": {
-    "backendReleaseBase": "https://github.com/abigmiu/codexMonitor-webui/releases/download"
+    "backendReleaseBase": "https://github.com/abigmiu/codex-monitor-webui/releases/download"
   },
   "publishConfig": {
     "access": "public"

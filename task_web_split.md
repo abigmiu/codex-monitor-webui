@@ -100,3 +100,4 @@
 - [x] CI：新增 GitHub Actions 工作流构建 `codex_monitor_web`（mac/linux/windows）并上传到 GitHub Release，资产命名与下载器一致
 - [x] CI：backend release 工作流补齐 `setup-node` + Linux 依赖安装 fallback（更稳定）
 - [x] Launcher：优先使用缓存/下载的后端二进制，避免 PATH 中同名但不兼容的后端导致启动失败
+- [x] 修正 `codexMonitor.backendReleaseBase` 指向实际 GitHub repo，避免默认下载 404

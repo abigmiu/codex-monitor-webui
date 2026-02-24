@@ -84,7 +84,7 @@ Useful flags:
 
 Backend download configuration:
 - `CODEX_MONITOR_BACKEND_URL`: direct URL to a platform-specific backend binary
-- `CODEX_MONITOR_BACKEND_RELEASE_BASE`: base URL for release downloads (by default derived from `package.json` `repository.url`)
+- `CODEX_MONITOR_BACKEND_RELEASE_BASE`: base URL for release downloads (by default taken from `package.json` `codexMonitor.backendReleaseBase`)
 - `CODEX_MONITOR_BACKEND_RELEASE_TAG`: defaults to `v<package-version>`
 - `CODEX_MONITOR_BACKEND_ASSET`: defaults to `codex_monitor_web-<platform>-<arch>[.exe]`
 - `CODEX_MONITOR_BACKEND_CACHE_DIR`: where to store downloaded binaries

@@ -113,4 +113,4 @@
 
 ## 10. 打包与发布
 - [x] `npm pack` 生成发布包（`.tgz`）
-- [ ] `npm publish` 发布到 npm（需要先 `npm adduser` / 配置 token）
+- [x] `npm publish` 发布到 npm（需要先 `npm adduser` / 配置 token）

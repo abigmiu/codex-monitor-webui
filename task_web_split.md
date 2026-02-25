@@ -101,3 +101,13 @@
 - [x] CI：backend release 工作流补齐 `setup-node` + Linux 依赖安装 fallback（更稳定）
 - [x] Launcher：优先使用缓存/下载的后端二进制，避免 PATH 中同名但不兼容的后端导致启动失败
 - [x] 修正 `codexMonitor.backendReleaseBase` 指向实际 GitHub repo，避免默认下载 404
+
+## 8. 前端静态服务配置（dist 产物可编辑）
+- [x] `dist/codex-monitor.server.json`：支持配置 `host` / `port`（CLI 参数优先生效）
+
+## 9. 启动器用户配置（npm 全局安装可配置）
+- [x] 支持读取 `~/.miu-codex-monitor.json`：配置 backend listen、frontend host/port、`defaultWorkspacePath`（CLI 优先）
+
+## 10. 打包与发布
+- [x] `npm pack` 生成发布包（`.tgz`）
+- [ ] `npm publish` 发布到 npm（需要先 `npm adduser` / 配置 token）

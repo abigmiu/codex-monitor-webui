@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { stat, rename, chmod, mkdir } from "node:fs/promises";
 import { createConnection } from "node:net";
+import { homedir } from "node:os";
 import { dirname, join, resolve, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
@@ -22,15 +23,88 @@ const frontendServerScript = resolve(projectRoot, "scripts", "serve-frontend.mjs
 const packageJsonPath = resolve(projectRoot, "package.json");
 
 const DEFAULT_LISTEN = "127.0.0.1:4732";
-const DEFAULT_FRONTEND_HOST = "127.0.0.1";
-const DEFAULT_FRONTEND_PORT = 5173;
+const DEFAULT_FRONTEND_HOST = "0.0.0.0";
+const DEFAULT_FRONTEND_PORT = 5176;
+const DEFAULT_FRONTEND_CONFIG_FILENAME = "codex-monitor.server.json";
 const DEFAULT_TOKEN = "dev-token";
 const DEFAULT_BACKEND_READY_TIMEOUT_MS = 180_000;
 const DEFAULT_BACKEND_RETRY_INTERVAL_MS = 300;
+const DEFAULT_DEFAULT_WORKSPACE_PATH = "/workspace";
+const DEFAULT_USER_CONFIG_PATH = join(homedir(), ".miu-codex-monitor.json");
 
 const homeDir = process.env.HOME || process.env.USERPROFILE || projectRoot;
 const DEFAULT_DATA_DIR = resolve(homeDir, ".codexmonitor-web");
 const DEFAULT_TMP_DIR = resolve(homeDir, ".codexmonitor", "tmp");
+
+function normalizeOptionalString(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeOptionalPort(value) {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number.parseInt(value.trim(), 10);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function resolveUserConfigPath() {
+  const configured = normalizeOptionalString(process.env.MIU_CODEX_MONITOR_CONFIG);
+  if (configured) {
+    return resolve(configured);
+  }
+  return DEFAULT_USER_CONFIG_PATH;
+}
+
+function readUserConfig() {
+  const configPath = resolveUserConfigPath();
+  if (!existsSync(configPath)) {
+    return { path: configPath, config: null };
+  }
+  try {
+    const raw = readFileSync(configPath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("config must be a JSON object");
+    }
+    return { path: configPath, config: parsed };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[codex-monitor] Ignoring invalid config at ${configPath}: ${message}`);
+    return { path: configPath, config: null };
+  }
+}
+
+function pickUserConfigValue(config, keys) {
+  if (!config || typeof config !== "object") {
+    return undefined;
+  }
+  for (const key of keys) {
+    const parts = key.split(".");
+    let current = config;
+    let ok = true;
+    for (const part of parts) {
+      if (!current || typeof current !== "object" || !(part in current)) {
+        ok = false;
+        break;
+      }
+      current = current[part];
+    }
+    if (ok) {
+      return current;
+    }
+  }
+  return undefined;
+}
 
 function printHelp() {
   console.log(`codex-monitor - start CodexMonitor web stack
@@ -46,13 +120,19 @@ OPTIONS:
   --backend-path <path>   Use an existing backend executable (skips download)
   --backend-cache-dir <path>  Backend binary cache directory (default: ${DEFAULT_DATA_DIR})
   --no-backend-download   Disable backend auto-download
-  --frontend-port <port>  Frontend server port (default: ${DEFAULT_FRONTEND_PORT})
+  --frontend-host <host>  Frontend bind host (default: ${DEFAULT_FRONTEND_HOST})
+  --frontend-port <port>  Frontend bind port (default: ${DEFAULT_FRONTEND_PORT}; can be overridden by dist/${DEFAULT_FRONTEND_CONFIG_FILENAME})
+  --default-workspace <path>  Default workspace path to open (default: ${DEFAULT_DEFAULT_WORKSPACE_PATH})
+  --no-default-workspace  Disable default workspace auto-open
   --backend-only          Start backend only
   --frontend-only         Start frontend only
   -h, --help              Show this help
 
 NOTES:
   - Frontend serves prebuilt static assets from dist/.
+  - Frontend bind host/port defaults can be set in dist/${DEFAULT_FRONTEND_CONFIG_FILENAME}.
+  - User config (npm/global install friendly): ${DEFAULT_USER_CONFIG_PATH}
+    - Override path via env: MIU_CODEX_MONITOR_CONFIG=/path/to/config.json
   - If dist/ is missing, run: npm run build
   - Backend is started from a native binary when available (no Rust required).
   - Dev fallback: if no backend binary is available, we can run via cargo (requires Rust).
@@ -68,10 +148,19 @@ EXAMPLES:
 function parseArgs(argv) {
   const options = {
     listen: DEFAULT_LISTEN,
+    _listenProvided: false,
     dataDir: DEFAULT_DATA_DIR,
+    _dataDirProvided: false,
     backendCacheDir: DEFAULT_DATA_DIR,
+    _backendCacheDirProvided: false,
     token: DEFAULT_TOKEN,
+    _tokenProvided: false,
     frontendPort: DEFAULT_FRONTEND_PORT,
+    _frontendPortProvided: false,
+    frontendHost: DEFAULT_FRONTEND_HOST,
+    _frontendHostProvided: false,
+    defaultWorkspacePath: DEFAULT_DEFAULT_WORKSPACE_PATH,
+    _defaultWorkspaceProvided: false,
     backendOnly: false,
     frontendOnly: false,
     backendPath: null,
@@ -96,6 +185,7 @@ function parseArgs(argv) {
     }
     if (arg === "--no-token") {
       options.token = null;
+      options._tokenProvided = true;
       continue;
     }
     if (arg === "--backend-path") {
@@ -113,6 +203,7 @@ function parseArgs(argv) {
         throw new Error("Missing value for --backend-cache-dir");
       }
       options.backendCacheDir = value;
+      options._backendCacheDirProvided = true;
       index += 1;
       continue;
     }
@@ -126,6 +217,7 @@ function parseArgs(argv) {
         throw new Error("Missing value for --listen");
       }
       options.listen = value;
+      options._listenProvided = true;
       index += 1;
       continue;
     }
@@ -135,6 +227,7 @@ function parseArgs(argv) {
         throw new Error("Missing value for --data-dir");
       }
       options.dataDir = value;
+      options._dataDirProvided = true;
       index += 1;
       continue;
     }
@@ -144,6 +237,7 @@ function parseArgs(argv) {
         throw new Error("Missing value for --token");
       }
       options.token = value;
+      options._tokenProvided = true;
       index += 1;
       continue;
     }
@@ -153,7 +247,33 @@ function parseArgs(argv) {
         throw new Error("Invalid value for --frontend-port");
       }
       options.frontendPort = value;
+      options._frontendPortProvided = true;
       index += 1;
+      continue;
+    }
+    if (arg === "--frontend-host") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error("Missing value for --frontend-host");
+      }
+      options.frontendHost = value;
+      options._frontendHostProvided = true;
+      index += 1;
+      continue;
+    }
+    if (arg === "--default-workspace") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error("Missing value for --default-workspace");
+      }
+      options.defaultWorkspacePath = value;
+      options._defaultWorkspaceProvided = true;
+      index += 1;
+      continue;
+    }
+    if (arg === "--no-default-workspace") {
+      options.defaultWorkspacePath = null;
+      options._defaultWorkspaceProvided = true;
       continue;
     }
 
@@ -165,6 +285,134 @@ function parseArgs(argv) {
   }
 
   return options;
+}
+
+function applyUserConfigDefaults(options) {
+  const { config } = readUserConfig();
+  if (!config) {
+    return options;
+  }
+
+  if (!options._listenProvided) {
+    const listen = normalizeOptionalString(
+      pickUserConfigValue(config, ["backend.listen", "listen", "backendListen"]),
+    );
+    if (listen) {
+      options.listen = listen;
+    }
+  }
+
+  if (!options._dataDirProvided) {
+    const dataDir = normalizeOptionalString(
+      pickUserConfigValue(config, ["backend.dataDir", "dataDir", "backendDataDir"]),
+    );
+    if (dataDir) {
+      options.dataDir = dataDir;
+    }
+  }
+
+  if (!options._backendCacheDirProvided) {
+    const backendCacheDir = normalizeOptionalString(
+      pickUserConfigValue(config, [
+        "backend.backendCacheDir",
+        "backendCacheDir",
+        "backend.cacheDir",
+      ]),
+    );
+    if (backendCacheDir) {
+      options.backendCacheDir = backendCacheDir;
+    }
+  }
+
+  if (!options._tokenProvided) {
+    const tokenValue = pickUserConfigValue(config, ["backend.token", "token", "authToken"]);
+    if (tokenValue === null) {
+      options.token = null;
+    } else {
+      const token = normalizeOptionalString(tokenValue);
+      if (token) {
+        options.token = token;
+      }
+    }
+  }
+
+  if (!options._frontendHostProvided) {
+    const frontendHost = normalizeOptionalString(
+      pickUserConfigValue(config, ["frontend.host", "frontendHost"]),
+    );
+    if (frontendHost) {
+      options.frontendHost = frontendHost;
+      options._frontendHostProvided = true;
+    }
+  }
+
+  if (!options._frontendPortProvided) {
+    const frontendPort = normalizeOptionalPort(
+      pickUserConfigValue(config, ["frontend.port", "frontendPort"]),
+    );
+    if (frontendPort) {
+      options.frontendPort = frontendPort;
+      options._frontendPortProvided = true;
+    }
+  }
+
+  if (!options._defaultWorkspaceProvided) {
+    const defaultWorkspaceValue = pickUserConfigValue(config, [
+      "defaultWorkspacePath",
+      "defaultWorkspace",
+      "workspace.defaultPath",
+    ]);
+    if (defaultWorkspaceValue === null) {
+      options.defaultWorkspacePath = null;
+    } else {
+      const defaultWorkspacePath = normalizeOptionalString(defaultWorkspaceValue);
+      if (defaultWorkspacePath) {
+        options.defaultWorkspacePath = defaultWorkspacePath;
+      }
+    }
+  }
+
+  return options;
+}
+
+function validateFrontendServerConfig(config, configPath) {
+  if (config == null || typeof config !== "object") {
+    throw new Error(`Invalid frontend config file (expected object): ${configPath}`);
+  }
+  if ("host" in config && typeof config.host !== "string") {
+    throw new Error(`Invalid frontend config host (expected string): ${configPath}`);
+  }
+  if ("port" in config) {
+    const port = config.port;
+    if (!Number.isInteger(port) || port <= 0) {
+      throw new Error(`Invalid frontend config port (expected positive integer): ${configPath}`);
+    }
+  }
+}
+
+function readFrontendServerConfig(distRoot) {
+  const configPath = resolve(distRoot, DEFAULT_FRONTEND_CONFIG_FILENAME);
+  if (!existsSync(configPath)) {
+    return null;
+  }
+  const raw = readFileSync(configPath, "utf8");
+  const parsed = JSON.parse(raw);
+  validateFrontendServerConfig(parsed, configPath);
+  return {
+    host: typeof parsed.host === "string" && parsed.host.trim() ? parsed.host.trim() : null,
+    port: Number.isInteger(parsed.port) && parsed.port > 0 ? parsed.port : null,
+  };
+}
+
+function resolveFrontendBind(options) {
+  const config = readFrontendServerConfig(distDir);
+  const host = options._frontendHostProvided
+    ? options.frontendHost
+    : (config?.host ?? DEFAULT_FRONTEND_HOST);
+  const port = options._frontendPortProvided
+    ? options.frontendPort
+    : (config?.port ?? DEFAULT_FRONTEND_PORT);
+  return { host, port };
 }
 
 function commandFor(name) {
@@ -546,17 +794,26 @@ function startBackend(options) {
 }
 
 function startFrontend(options) {
+  const bind = resolveFrontendBind(options);
   const args = [
     frontendServerScript,
     "--root",
     distDir,
-    "--host",
-    DEFAULT_FRONTEND_HOST,
-    "--port",
-    String(options.frontendPort),
     "--api-base",
     buildApiBase(options.listen),
   ];
+
+  if (options._frontendHostProvided) {
+    args.push("--host", String(bind.host));
+  }
+  if (options._frontendPortProvided) {
+    args.push("--port", String(bind.port));
+  }
+  if (typeof options.defaultWorkspacePath === "string" && options.defaultWorkspacePath.trim()) {
+    args.push("--default-workspace", options.defaultWorkspacePath.trim());
+  } else if (options.defaultWorkspacePath === null) {
+    args.push("--no-default-workspace");
+  }
 
   if (options.token) {
     args.push("--token", options.token);
@@ -604,6 +861,7 @@ async function main() {
   let options;
   try {
     options = parseArgs(process.argv.slice(2));
+    options = applyUserConfigDefaults(options);
   } catch (error) {
     console.error(`[codex-monitor] ${error.message}`);
     printHelp();
@@ -627,7 +885,13 @@ async function main() {
   );
   console.log(`[codex-monitor] backend: ${buildApiBase(options.listen)}`);
   if (!options.backendOnly) {
-    console.log(`[codex-monitor] frontend: http://${DEFAULT_FRONTEND_HOST}:${options.frontendPort}`);
+    try {
+      const bind = resolveFrontendBind(options);
+      console.log(`[codex-monitor] frontend: http://${bind.host}:${bind.port}`);
+    } catch (error) {
+      console.error(`[codex-monitor] ${error.message}`);
+      process.exit(2);
+    }
   }
 
   const children = [];

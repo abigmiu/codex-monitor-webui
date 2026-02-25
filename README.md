@@ -78,9 +78,20 @@ Useful flags:
 - `--listen 127.0.0.1:4732`
 - `--data-dir ~/.codexmonitor-web`
 - `--token dev-token` (or `--no-token`)
-- `--frontend-port 5173`
+- `--frontend-host 0.0.0.0`
+- `--frontend-port 5176`
+- `--default-workspace /workspace` (or `--no-default-workspace`)
 - `--backend-path /path/to/codex_monitor_web`
 - `--backend-cache-dir ~/.codexmonitor-web` (where the backend binary is cached)
+
+User config (recommended for npm/global install):
+- Create `~/.miu-codex-monitor.json` to set defaults (CLI flags still override).
+- Example:
+  - `{ "frontend": { "host": "0.0.0.0", "port": 5176 }, "backend": { "listen": "127.0.0.1:4732" }, "defaultWorkspacePath": "/workspace" }`
+- Override config path via env: `MIU_CODEX_MONITOR_CONFIG=/path/to/config.json`
+
+Dist artifact config (optional):
+- `dist/codex-monitor.server.json` can provide default `host`/`port` for the static frontend server when no CLI/user-config override is present.
 
 Backend download configuration:
 - `CODEX_MONITOR_BACKEND_URL`: direct URL to a platform-specific backend binary

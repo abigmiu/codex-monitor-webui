@@ -1,7 +1,7 @@
 {
   "name": "@abigmiu/codex-monitor",
   "private": false,
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "CodexMonitor web launcher (local Rust backend + browser UI)",
   "type": "module",
   "license": "MIT",
@@ -31,7 +31,7 @@
     "predev": "npm run sync:material-icons",
     "dev": "vite",
     "prebuild": "npm run sync:material-icons",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && node scripts/write-frontend-server-config.mjs",
     "build:appimage": "NO_STRIP=1 tauri build --bundles appimage",
     "doctor": "sh scripts/doctor.sh",
     "doctor:strict": "sh scripts/doctor.sh --strict",
@@ -90,6 +90,7 @@
     "bin",
     "dist",
     "scripts/serve-frontend.mjs",
+    "scripts/write-frontend-server-config.mjs",
     "scripts/install-backend.mjs",
     "README.md",
     "LICENSE"

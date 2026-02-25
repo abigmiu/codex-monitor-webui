@@ -4,8 +4,9 @@ import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 
-const DEFAULT_HOST = "127.0.0.1";
-const DEFAULT_PORT = 5173;
+const DEFAULT_HOST = "0.0.0.0";
+const DEFAULT_PORT = 5176;
+const DEFAULT_CONFIG_FILENAME = "codex-monitor.server.json";
 
 function parseArgs(argv) {
   const options = {
@@ -14,7 +15,11 @@ function parseArgs(argv) {
     port: DEFAULT_PORT,
     apiBase: null,
     token: null,
+    defaultWorkspacePath: null,
+    disableDefaultWorkspace: false,
     help: false,
+    _hostProvided: false,
+    _portProvided: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -34,6 +39,7 @@ function parseArgs(argv) {
         throw new Error("Missing value for --host");
       }
       options.host = value;
+      options._hostProvided = true;
       index += 1;
       continue;
     }
@@ -43,6 +49,7 @@ function parseArgs(argv) {
         throw new Error("Invalid value for --port");
       }
       options.port = value;
+      options._portProvided = true;
       index += 1;
       continue;
     }
@@ -64,6 +71,21 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
+    if (arg === "--default-workspace") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error("Missing value for --default-workspace");
+      }
+      options.defaultWorkspacePath = value;
+      options.disableDefaultWorkspace = false;
+      index += 1;
+      continue;
+    }
+    if (arg === "--no-default-workspace") {
+      options.defaultWorkspacePath = null;
+      options.disableDefaultWorkspace = true;
+      continue;
+    }
     if (arg === "-h" || arg === "--help") {
       options.help = true;
       continue;
@@ -80,12 +102,18 @@ function usage() {
 USAGE:
   node scripts/serve-frontend.mjs [options]
 
+CONFIG:
+  - If <root>/${DEFAULT_CONFIG_FILENAME} exists, it provides default host/port.
+  - CLI flags --host/--port override config values.
+
 OPTIONS:
   --root <path>        Frontend dist root (default: dist)
-  --host <host>        Bind host (default: 127.0.0.1)
-  --port <port>        Bind port (default: 5173)
+  --host <host>        Bind host (default: 0.0.0.0)
+  --port <port>        Bind port (default: 5176)
   --api-base <url>     Runtime API base override
   --token <token>      Runtime token override
+  --default-workspace <path>  Runtime default workspace path
+  --no-default-workspace      Disable default workspace auto-open
   -h, --help           Show this help
 `;
 }
@@ -118,6 +146,8 @@ function buildInjectedRuntimeScript(options) {
   const config = {
     apiBase: options.apiBase ?? undefined,
     token: options.token ?? undefined,
+    defaultWorkspacePath: options.defaultWorkspacePath ?? undefined,
+    disableDefaultWorkspace: options.disableDefaultWorkspace ? true : undefined,
   };
   return `<script>window.__CODEX_MONITOR_RUNTIME_CONFIG__ = ${JSON.stringify(config)};</script>`;
 }
@@ -188,6 +218,42 @@ async function createRequestHandler(options) {
   };
 }
 
+function validateServerConfig(config, configPath) {
+  if (config == null || typeof config !== "object") {
+    throw new Error(`Invalid config file (expected object): ${configPath}`);
+  }
+  if ("host" in config && typeof config.host !== "string") {
+    throw new Error(`Invalid config host (expected string): ${configPath}`);
+  }
+  if ("port" in config) {
+    const port = config.port;
+    if (!Number.isInteger(port) || port <= 0) {
+      throw new Error(`Invalid config port (expected positive integer): ${configPath}`);
+    }
+  }
+}
+
+async function applyConfigFileDefaults(options) {
+  const rootDir = resolve(options.root);
+  const configPath = join(rootDir, DEFAULT_CONFIG_FILENAME);
+  if (!existsSync(configPath)) {
+    return options;
+  }
+
+  const raw = await readFile(configPath, "utf8");
+  const config = JSON.parse(raw);
+  validateServerConfig(config, configPath);
+
+  if (!options._hostProvided && typeof config.host === "string" && config.host.trim()) {
+    options.host = config.host.trim();
+  }
+  if (!options._portProvided && Number.isInteger(config.port) && config.port > 0) {
+    options.port = config.port;
+  }
+
+  return options;
+}
+
 async function main() {
   let options;
   try {
@@ -201,6 +267,13 @@ async function main() {
   if (options.help) {
     console.log(usage());
     return;
+  }
+
+  try {
+    await applyConfigFileDefaults(options);
+  } catch (error) {
+    console.error(`[serve-frontend] ${error.message}`);
+    process.exit(2);
   }
 
   const handler = await createRequestHandler(options);

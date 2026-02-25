@@ -6,6 +6,7 @@ import type {
   WorkspaceInfo,
   WorkspaceSettings,
 } from "../../../types";
+import { getResolvedDefaultWorkspacePath } from "../../../platform/backendConfig";
 import { alertDialog, confirmDialog } from "../../../platform/dialog";
 import {
   addClone as addCloneService,
@@ -82,6 +83,8 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
   );
   const workspaceSettingsRef = useRef<Map<string, WorkspaceSettings>>(new Map());
   const { onDebug, defaultCodexBin, appSettings, onUpdateAppSettings } = options;
+  const defaultWorkspacePath = useMemo(() => getResolvedDefaultWorkspacePath(), []);
+  const defaultWorkspaceAttempted = useRef(false);
 
   const refreshWorkspaces = useCallback(async () => {
     try {
@@ -249,6 +252,50 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
     },
     [defaultCodexBin, onDebug],
   );
+
+  useEffect(() => {
+    if (!hasLoaded) {
+      return;
+    }
+    if (defaultWorkspaceAttempted.current) {
+      return;
+    }
+    defaultWorkspaceAttempted.current = true;
+
+    const normalizeForMatch = (value: string) =>
+      value.replace(/\\/g, "/").replace(/\/+$/, "");
+
+    if (!defaultWorkspacePath) {
+      return;
+    }
+
+    const desiredPath = normalizeForMatch(defaultWorkspacePath);
+    const existing = workspaces.find(
+      (workspace) => normalizeForMatch(workspace.path) === desiredPath,
+    );
+    if (existing) {
+      setActiveWorkspaceId((prev) => prev ?? existing.id);
+      return;
+    }
+
+    if (workspaces.length > 0) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        await addWorkspaceFromPath(defaultWorkspacePath);
+      } catch (error) {
+        onDebug?.({
+          id: `${Date.now()}-client-default-workspace-error`,
+          timestamp: Date.now(),
+          source: "error",
+          label: "workspace/default error",
+          payload: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })();
+  }, [addWorkspaceFromPath, defaultWorkspacePath, hasLoaded, onDebug, workspaces]);
 
   const addWorkspace = useCallback(async () => {
     const selection = await pickWorkspacePath();

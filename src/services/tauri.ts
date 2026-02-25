@@ -6,6 +6,7 @@ import {
   stopDictationWeb,
 } from "../platform/dictation";
 import { openFileDialog } from "../platform/dialog";
+import { getResolvedDefaultWorkspacePath } from "../platform/backendConfig";
 import { callRpc } from "../platform/rpcClient";
 import type {
   AppSettings,
@@ -88,10 +89,12 @@ async function pickFilesFromBrowser(filters?: { name: string; extensions: string
 }
 
 export async function pickWorkspacePath(): Promise<string | null> {
-  const lastValue =
+  const storedValue =
     typeof window !== "undefined"
       ? window.localStorage.getItem("codex_monitor_last_workspace_path") ?? ""
       : "";
+  const runtimeDefault = getResolvedDefaultWorkspacePath("") ?? "";
+  const lastValue = storedValue || runtimeDefault;
   const value = window.prompt("Enter local workspace path", lastValue);
   if (value === null) {
     return null;

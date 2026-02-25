@@ -4,6 +4,8 @@ type RuntimeBackendConfig = {
   apiBase?: string | null;
   rpcUrl?: string | null;
   token?: string | null;
+  defaultWorkspacePath?: string | null;
+  disableDefaultWorkspace?: boolean | null;
 };
 
 declare global {
@@ -111,4 +113,19 @@ export function appendToken(url: URL, token: string | null) {
     return;
   }
   url.searchParams.set("token", token);
+}
+
+export function getDefaultWorkspacePath(): string | null {
+  return normalizeOptionalString(getRuntimeConfig()?.defaultWorkspacePath);
+}
+
+export function isDefaultWorkspaceDisabled(): boolean {
+  return Boolean(getRuntimeConfig()?.disableDefaultWorkspace);
+}
+
+export function getResolvedDefaultWorkspacePath(fallback: string | null = null): string | null {
+  if (isDefaultWorkspaceDisabled()) {
+    return null;
+  }
+  return getDefaultWorkspacePath() ?? fallback;
 }

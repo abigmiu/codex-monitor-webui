@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { getResolvedDefaultWorkspacePath } from "../../../platform/backendConfig";
 
 const STORAGE_KEY = "codex_monitor_last_workspace_path";
 
@@ -17,7 +18,11 @@ function getStoredWorkspacePath() {
   if (typeof window === "undefined") {
     return "";
   }
-  return window.localStorage.getItem(STORAGE_KEY) ?? "";
+  const stored = window.localStorage.getItem(STORAGE_KEY) ?? "";
+  if (stored.trim()) {
+    return stored;
+  }
+  return getResolvedDefaultWorkspacePath("") ?? "";
 }
 
 function storeWorkspacePath(path: string) {

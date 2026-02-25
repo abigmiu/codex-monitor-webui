@@ -1,4 +1,5 @@
 const DEFAULT_API_BASE = "http://127.0.0.1:4732";
+const DEFAULT_BACKEND_PORT = 4732;
 
 type RuntimeBackendConfig = {
   apiBase?: string | null;
@@ -26,6 +27,20 @@ function normalizeOptionalString(value: unknown) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function isLoopbackHostname(hostname: string) {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
+}
+
+function isLoopbackUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return isLoopbackHostname(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 function getRuntimeConfig(): RuntimeBackendConfig | null {
   if (typeof window === "undefined") {
     return null;
@@ -44,16 +59,31 @@ function resolveApiBase() {
   }
 
   const configured = (import.meta.env.VITE_CODEX_MONITOR_API_BASE ?? "").trim();
-  if (configured) {
+  const shouldIgnoreConfiguredLoopback =
+    Boolean(configured) &&
+    typeof window !== "undefined" &&
+    Boolean(window.location?.hostname) &&
+    !isLoopbackHostname(window.location.hostname) &&
+    isLoopbackUrl(configured);
+  if (configured && !shouldIgnoreConfiguredLoopback) {
     return trimTrailingSlash(configured);
   }
 
-  if (typeof window !== "undefined" && window.location?.origin) {
-    const isLocalPreview =
-      window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-    if (!isLocalPreview) {
-      return trimTrailingSlash(window.location.origin);
+  if (typeof window !== "undefined" && window.location?.protocol && window.location?.hostname) {
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol;
+    if (!isLoopbackHostname(hostname)) {
+      const port = window.location.port;
+      const portNumber = port ? Number.parseInt(port, 10) : null;
+      if (!port || portNumber === 80 || portNumber === 443) {
+        return trimTrailingSlash(window.location.origin);
+      }
+      return trimTrailingSlash(`${protocol}//${hostname}:${DEFAULT_BACKEND_PORT}`);
     }
+  }
+
+  if (configured) {
+    return trimTrailingSlash(configured);
   }
 
   return DEFAULT_API_BASE;
@@ -66,7 +96,13 @@ function resolveRpcUrl(apiBase: string) {
   }
 
   const configured = (import.meta.env.VITE_CODEX_MONITOR_RPC_URL ?? "").trim();
-  if (configured) {
+  const shouldIgnoreConfiguredLoopback =
+    Boolean(configured) &&
+    typeof window !== "undefined" &&
+    Boolean(window.location?.hostname) &&
+    !isLoopbackHostname(window.location.hostname) &&
+    isLoopbackUrl(configured);
+  if (configured && !shouldIgnoreConfiguredLoopback) {
     return configured;
   }
 

@@ -799,7 +799,7 @@ function startFrontend(options) {
     frontendServerScript,
     "--root",
     distDir,
-    "--api-base",
+    "--proxy-backend",
     buildApiBase(options.listen),
   ];
 

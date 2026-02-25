@@ -147,6 +147,21 @@ npm run dev
 npm run build
 ```
 
+### Server deployment note (reverse proxy)
+
+If you access the frontend from another machine via a server domain, do **not** hardcode `ws://127.0.0.1:4732` in the browser: `127.0.0.1` would point to the visitor's own machine.
+
+Recommended: run backend on the server (can bind to `127.0.0.1:4732`) and reverse-proxy `/api/*` and `/rpc` from your public web server (Nginx/Caddy) to the backend.
+
+For a simple all-in-one static server (dev-friendly), `scripts/serve-frontend.mjs` can also proxy:
+
+```bash
+node scripts/serve-frontend.mjs --root dist --host 0.0.0.0 --port 5176 \
+  --proxy-backend http://127.0.0.1:4732 --token dev-token
+```
+
+Note: the `codex-monitor` launcher enables this reverse proxy by default (it passes `--proxy-backend` pointing at `--listen`).
+
 ### Publish to npm
 
 ```bash

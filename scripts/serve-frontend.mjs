@@ -269,11 +269,11 @@ function proxyHttp(req, res, backendBaseUrl) {
 
 function proxyWebSocketUpgrade(req, clientSocket, clientHead, backendBaseUrl) {
   const backendBase = new URL(backendBaseUrl);
-  const wsBase = new URL(backendBase);
-  wsBase.protocol = wsBase.protocol === "https:" ? "wss:" : "ws:";
-
-  const target = new URL(req.url || "/rpc", wsBase);
-  const transport = target.protocol === "wss:" ? httpsRequest : httpRequest;
+  // NOTE: WebSocket "ws/wss" is established over an HTTP/HTTPS request with
+  // `Connection: Upgrade` + `Upgrade: websocket`. Node's http(s).request does
+  // not support ws:/wss: URL protocols.
+  const target = new URL(req.url || "/rpc", backendBase);
+  const transport = target.protocol === "https:" ? httpsRequest : httpRequest;
   const headers = { ...req.headers };
   headers.host = target.host;
 

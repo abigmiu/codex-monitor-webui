@@ -1,7 +1,7 @@
 {
   "name": "@abigmiu/codex-monitor",
   "private": false,
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "CodexMonitor web launcher (local Rust backend + browser UI)",
   "type": "module",
   "license": "MIT",

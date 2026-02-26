@@ -106,6 +106,7 @@
 - [x] `dist/codex-monitor.server.json`：支持配置 `host` / `port`（CLI 参数优先生效）
 - [x] 远程域名访问时 backend 自动解析：忽略 baked 的 loopback `VITE_CODEX_MONITOR_*`，并在非 80/443 端口上默认指向同 hostname 的 `:4732`（可用 runtime config 覆盖）
 - [x] `scripts/serve-frontend.mjs` 支持 `--proxy-backend`：将 `/api/*` 与 WS `/rpc` 反代到后端（类似 Vite devserver proxy）
+- [x] 修复 `scripts/serve-frontend.mjs`：WebSocket upgrade 反代不再使用 `ws:/wss:` URL（兼容 Node.js 22 的 `http(s).request`）
 - [x] Launcher 默认开启反代：`codex-monitor` 启动前端时默认传 `--proxy-backend`（指向 `--listen`），浏览器侧固定走同源 `/api/*` 与 `/rpc`
 
 ## 9. 启动器用户配置（npm 全局安装可配置）
